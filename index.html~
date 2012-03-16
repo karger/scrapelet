@@ -1,0 +1,53 @@
+<html>
+<head>
+<title>
+Scrapelet
+</title>
+</head>
+<body>
+<h1>Scrapelet</h1>
+
+This is a Javascript <a href="javascript:(function(){javascript:(function(){var%20jsCode=document.createElement('script');jsCode.setAttribute('src','http://people.csail.mit.edu/karger/Scrapelet/scrapelet.js');document.body.appendChild(jsCode);}());})();">scraper</a> bookmarklet.  You can use it to scrape lists of urls.  The assumption is that all the urls present items rendered using the same template. Thus, you show the scraper one example of the item you want to scrape, and it seeks out other similar instances on the pages and scrapes them.
+
+<h2>Pros and Cons</h2>
+This is a pure Javascript in-browser scraper.  It uses your own browser to do the scraping.  The advantage of this approach is that the scraper has all the access capabilities of your browser: it will automatically use your login credentials to access restricted content.  Also, if the page uses Javascript to render its content, the scraper will be able to execute that Javascript and extract that content after it has been rendered.
+<p>
+On the downside, as a pure-Javascript scraper this scraper is subject to Javascript restrictions.  Thus, it cannot scrape from multiple web sites, because it is only allowed to access content from the site holding the page where you started the scraping process.
+<p>
+An even bigger downside is that this is a fragile, highly experimental tool.  It will not do a good job handling variability in the content.  
+
+<h2>Installation</h2>
+
+There's nothing to install.  All you need to do is drag
+this <a href="javascript:(function(){javascript:(function(){var%20jsCode=document.createElement('script');jsCode.setAttribute('src','http://people.csail.mit.edu/karger/Scrapelet/scrapelet.js');document.body.appendChild(jsCode);}());})();">scraper</a>
+bookmarklet link into your bookmarks collection.  
+
+<h2>Usage</h2> 
+
+To use this scraper, visit the web site that you want
+to scrape (you can only scrape from a single web site).  Then, click the bookmarklet.  That will open a dialog for selecting an example of the item you want to scrape, using the mouse and arrow keys.  You'll then be able to enter a list of urls you'd like to scrape.  All the urls need to be on the same site as the example page you used to teach the scraper.  After scraping completes, a page will open containing a table of results.
+
+<b>Allow popups.</b>  The scraper works by opening new windows.  If your browser complains about popups, make sure to permit them.
+
+<b>Be patient.</b>  The scraper spends a few seconds waiting for each page to "settle down" (in case the page uses some Javascript rendering) before it jumps in and extracts the content.  
+
+<h2>Results</h2>
+Some scrapers ask you to select the particular thing you'd like to extract.  This scraper just extracts <b>everything</b>.  It gives you a table of all possible pieces of the items it found.  The top line counts the number of items with a value in each column.  After you copy and paste the table into a spreadsheet, you can delete all the columns you don't need.
+
+<h2>Try it</h2> If you want to try this scraper, just click one of the
+links above to launch it.  Then, select a cell of the table below as
+the scraping example.  Or, you can select one of the headers in order
+to scrape the headers out of this page.  Finally, enter the url of
+this page when asked what you want to scrape.  It should extract the
+cells from the table below.
+
+<table style="border: 3px solid black">
+<tr>
+<td>first cell<td>second cell
+</tr>
+<tr>
+<td>third cell<td>fourth cell
+</tr>
+</table>
+
+</body>
