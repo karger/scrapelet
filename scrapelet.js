@@ -2,43 +2,56 @@ if (typeof(ELEMENT_NODE)=='undefined') ELEMENT_NODE=1;
 const PAGE_WAIT=1000; //how long to wait before scraping page
 const PAGE_RATE=1000; //rate at which pages are opened to scrape
 
-var MyWindow = {sameDoc: false, zIndex: 5001};
-MyWindow.open = function(url, sameDoc) {
-    var win, jq;
+var MyWindow = {sameDoc: true, zIndex: 5001};
+MyWindow.open = function(url, title, sameDoc) {
+    var win, body, setUrl;
     sameDoc = sameDoc || this.sameDoc;
-    if (this.sameDoc) {
+    if (this.sameDoc) { //frame 
 	if (url) {
-	    win = $('<iframe src=' + url + ' target="scraper"></iframe>');
-	    win.css({
-		    position: "relative", 
-			width:"100%",
-			height:"400px", 
-			border: "3px solid black",
-			"background-color": "white",
-			"z-index": (this.zIndex++).toString()
-			});
+	    win = $('<iframe title="'+title+'" src="' + url + '" target="scraper"></iframe>');
 	} else {
-	    win = $('<div></div>');
+	    win = $('<iframe title="'+title+'"></iframe>');
 	}
+	win.css({
+		position: "relative", 
+		    top:"100px",
+		    width:"100%",
+		    height:"400px", 
+		    border: "3px solid black",
+		    "background-color": "white",
+		    "z-index": (this.zIndex++).toString()
+		    });
 	$("body").prepend(win);
-	jq = function() {
-	    return url ? frame.contents() : $(win);
+	body = function() {
+	    return win.contents().find("body");
 	}
+	body().text(title);
 	close = function() {win.remove();}
+	setURL = function (newUrl) {
+	    url = newUrl;
+	    win.src = newUrl;
+	}
     } else { //new window
-	if (url) {
-	    win = window.open(url);
-	} else {
-	    win = window.open();
+	win = window.open(url,title);
+	if (!url) {
+	    win.document.write('<html><head><title>'+title+
+			       '</title></head><body></body></html>');
 	}
-	jq = function() {
-	    return $(win.document);
+	body = function() {
+	    return $(win.document.body);
 	}
-	close = function() {win.close();}
+	close = function() {
+	    win.close();
+	}
+	setUrl = function (newUrl)  {
+	    url = newUrl;
+	    win.location.href = newUrl;
+	}
     }
     load = function(handler) {
 	if (url) {
-	    win.load(handler);
+	    alert(win);
+	    $(win).load(handler);
 	} else {
 	    handler();
 	}
@@ -46,29 +59,13 @@ MyWindow.open = function(url, sameDoc) {
 
 
     return {
-	jq: jq,
+	body: body,
 	load: load,
+	setUrl: setUrl,
 	close: close
     };
 }
     
-var makeTerminal = function(sameDoc) {
-    var elt = $("<div id='messages'></div>");
-
-    if (sameDoc) {
-	elt.css('border','3px solid black');
-	elt.css('z-index', 5000);
-	elt.css('position','relative');
-	elt.css('background-color','white');
-	$("body").prepend(elt);
-    } else {
-	var win=window.open();
-	win.document.title="Scraper Output";
-	$(win.document.body).prepend(elt);
-    }
-    return {window: win, output: elt};
-};
-
 // execute (asynchronous) f over a sequence of items
 // at some specified rate
 // when done, call cont.
@@ -317,51 +314,33 @@ var tabulate = function(items) {
 };
 
 var scrapeUrl = function(url,path,cont,sameDoc)  {
-    var processPage;
-    if (sameDoc) {
-	var frame = $('<iframe src=' + url + ' target="scraper"></iframe>');
-	frame.css({"position": "relative", "width":"100%",
-		    "height":"400px", "z-index":"5001"});
-	$("body").prepend(frame);
-	frame.load(function() {
-		setTimeout(function () {
-			cont(shredPage(frame.contents(),path));
-			frame.remove();
-		    },
-		    PAGE_WAIT);
-	    }
-	    );
-    } else {
-	var win=window.open(url);
-	$(win).load(function() {
-		setTimeout(function () {
-			cont(shredPage($(win.document.documentElement),path));
-			win.close();
-		    },
-		    PAGE_WAIT);
-	    }
-	    );
-    }
+    var win = MyWindow.open(url,'scrape url');
+    win.load(function () {
+	    setTimeout(function () {
+		    cont(shredPage(win.body(),path));
+		    win.close();
+		},
+		PAGE_WAIT);
+	});
 };
 
 
 var startScrape = function(elt) {
 
     var path=describePath(elt,20);
-    var term = MyWindow.open();
-    var msg = term.jq().find("body");
+    var term = MyWindow.open(null, 'Configure Scraper');
+    var msg = term.body();
     var getSettings = function(cont) {
 
-	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">A list of URLs</input></div></div>');
+	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages</input></div></div>');
 
-	var urlList=$("<div><h1>Choose URLs</h1><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + window.location + "</textarea>");
+	var urlList=$("<div><h1>Choose URLs</h1><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + window.location + "</textarea>").hide();
 
-	var paginate = $("<div><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>");
+	var paginate = $("<div><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
 
 	var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
 	
 
-	urlList.hide();
 	var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
 	.append(paginate).append(scrapeButton);
 
@@ -369,8 +348,10 @@ var startScrape = function(elt) {
 		if (scrapeChoice.find('input[name="scrape-choice"]:checked')
 		    .val() == "self") {
 		    urlList.hide();
+		    paginate.hide();
 		} else {
 		    urlList.show();
+		    paginate.show();
 		}
 	    });
 
@@ -437,9 +418,9 @@ var startScrape = function(elt) {
 	    };
 	}
 
-	win = Mywindow.open(url);
+	win = Mywindow.open(url, 'Paginate');
 	getBody = function() {
-	    return win.jq().find("body");
+	    return win.body();
 	}
 
 	var doPage = function() {
@@ -495,6 +476,7 @@ var startScrape = function(elt) {
 	}
 	results.find('td').css({'border':'2px solid black', 
 				'border-collapse': 'true'});
+	var msg = MyWindow.open(null,'Scraper Results').body();
 	msg.append('<h2>Results</h2>');
 	msg.append(results);
 	return;
