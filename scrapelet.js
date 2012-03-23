@@ -2,7 +2,7 @@ if (typeof(ELEMENT_NODE)=='undefined') ELEMENT_NODE=1;
 const PAGE_WAIT=1000; //how long to wait before scraping page
 const PAGE_RATE=1000; //rate at which pages are opened to scrape
 
-var MyWindow = {sameDoc: true, zIndex: 5001};
+var MyWindow = {sameDoc: false, zIndex: 5001};
 MyWindow.open = function(url, title, sameDoc) {
     var win, body, setUrl;
     sameDoc = sameDoc || this.sameDoc;
@@ -13,8 +13,7 @@ MyWindow.open = function(url, title, sameDoc) {
 	    win = $('<iframe title="'+title+'"></iframe>');
 	}
 	win.css({
-		position: "relative", 
-		    top:"100px",
+		    top:"10px",
 		    width:"100%",
 		    height:"400px", 
 		    border: "3px solid black",
@@ -50,7 +49,6 @@ MyWindow.open = function(url, title, sameDoc) {
     }
     load = function(handler) {
 	if (url) {
-	    alert(win);
 	    $(win).load(handler);
 	} else {
 	    handler();
@@ -266,11 +264,14 @@ var shredElement = function(elt) {
 
 var shredPage = function(page,path) {
     var items = [];
-    $(page).find(path).css('background-color','red').each(
-							  function() {
-							      items.push(shredElement(this));
-							  }
-							  );
+    $(page)
+    .find(path)
+    .css('background-color','red')
+    .each(
+	  function() {
+	      items.push(shredElement(this));
+	  }
+	  );
     return items;
 };
 
@@ -314,10 +315,10 @@ var tabulate = function(items) {
 };
 
 var scrapeUrl = function(url,path,cont,sameDoc)  {
-    var win = MyWindow.open(url,'scrape url');
+    var win = MyWindow.open(url);
     win.load(function () {
 	    setTimeout(function () {
-		    cont(shredPage(win.body(),path));
+		    cont(shredPage(win.body().parent(),path));
 		    win.close();
 		},
 		PAGE_WAIT);
@@ -366,6 +367,7 @@ var startScrape = function(elt) {
 	    }
 
 	    paginate = paginate.find('input[name=paginate]').is(':checked');
+	    term.close();
 	    if (paginate) {
 		alert('click on the "next" button');
 		choosePaginator(function(paginator) {
@@ -418,7 +420,7 @@ var startScrape = function(elt) {
 	    };
 	}
 
-	win = Mywindow.open(url, 'Paginate');
+	win = MyWindow.open(url, 'Paginate');
 	getBody = function() {
 	    return win.body();
 	}
