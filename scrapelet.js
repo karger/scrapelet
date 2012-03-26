@@ -366,10 +366,13 @@ var startScrape = function(elt) {
 	var urlList=$("<div><h1>Choose URLs</h1><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + window.location + "</textarea>").hide();
 
 	var paginate = $("<div><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
+	var paginateCheckbox = paginate.find('input[name="paginate"]');
+
+	var paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>");
+	paginateLimit.hide().appendTo(paginate);
 
 	var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
         
-
 	var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
 	.append(paginate).append(scrapeButton);
 
@@ -384,9 +387,13 @@ var startScrape = function(elt) {
 		}
 	    });
 
+	paginateCheckbox.change(function () {
+		paginateLimit.toggle(paginateCheckbox.is(':checked'));
+	    });
+
 	var handleInput = function() {
-	    urlForm.remove();
-	    var urls;
+	    var urls, limit;
+
 	    if (scrapeChoice.find('input[name="scrape-choice"]:checked')
 		.val() === "self") {
 		urls = null;
@@ -394,12 +401,15 @@ var startScrape = function(elt) {
 		urls = urlList.find("#urls").val().split("\n");
 	    }
 
-	    paginate = paginate.find('input[name=paginate]').is(':checked');
+	    paginate = paginate.find('input[name="paginate"]').is(':checked');
+	    limit = parseInt(urlForm.find('input[name="paginate-limit"]').val());
+	    if (isNaN(limit)) limit=0;
+	    urlForm.remove();
 	    term.close();
 	    if (paginate) {
 		alert('click on the "next" button');
 		choosePaginator(function(paginator) {
-			cont({urls: urls, paginator: paginator});
+			cont({urls: urls, paginator: paginator, limit: limit});
 		    });
 	    } else {
 		cont({urls: urls});
@@ -434,7 +444,8 @@ var startScrape = function(elt) {
 			    var nextLink = null;
 			    receiveScrape(shredPage(doc,path));
 
-			    if (paginator && (limit > 0)) {
+			    if (paginator && (limit != 0)) {
+				//feature: a negative limit will run forever
 				nextLink = paginator(doc)
 				    .parents()
 				    .andSelf()
@@ -453,7 +464,7 @@ var startScrape = function(elt) {
 	};
 
 	for (i=0; i<urls.length; i++) {
-	    pacer.todo(scrapeTask(urls[i], limit), urls[i]);
+	    pacer.todo(scrapeTask(urls[i], limit - 1), urls[i]);
 	}
 	pacer.await(function() {cont(tabulate(scrapedItems));});
 	pacer.start(500);
@@ -482,7 +493,7 @@ var startScrape = function(elt) {
     $(path).css('background-color','red');
     getSettings(function(settings) {
 	    scrapeUrls(settings.urls, path, 
-		       settings.paginator, 10, 
+		       settings.paginator, settings.limit, 
 		       showResults);
 	});
 };
