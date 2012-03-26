@@ -33,8 +33,8 @@ MyWindow.open = function(url, title, sameDoc) {
         };
     } else { //new window
         win = window.open(url);
-        if (title) win.document.title='title';
-        doc = function() {return $(win.document);}
+        if (title) {win.document.title='title';}
+        doc = function() {return $(win.document);};
         close = function() {
             win.close();
         };
@@ -51,7 +51,7 @@ MyWindow.open = function(url, title, sameDoc) {
         } else {
             handler();
         }
-    }
+    };
 
 
     return {
@@ -94,45 +94,36 @@ var selectItem = function(cont) {
     var currentSelection,
     currentSelectionColor,
     currentSelectionBorder,
-    history = [];
+    history = [],
     
-    var unhighlight = function () {
+    unhighlight = function () {
         if (currentSelection) {
             currentSelection.css('background',currentSelectionColor);
             currentSelection.css('border',currentSelectionBorder);
         }
-    };
-    var highlight = function () {
+    },
+
+    highlight = function () {
         currentSelectionColor=currentSelection.css('background');
         currentSelectionBorder=currentSelection.css('border');
         currentSelection.css('background-color','yellow');
         currentSelection.css('border','3px solid black');
-    };
+    },
 
-    var updateSelect = function(elt) {
+    updateSelect = function(elt) {
         unhighlight();
         currentSelection=elt;
         highlight();
-    };
+    },
 
-    var selectCurrentMouse = function(event) {
+    selectCurrentMouse = function(event) {
         updateSelect($(event.target));
-    };
+    },
 
-    var cleanup = function() {
-        $('body').off('mousemove.highlighter', 
-                      selectCurrentMouse);
-        $('body').off('keydown.highlighter', keyCommand);
-        cancelClick();
-    };
 
-    var commitSelect = function(evt) {
-        cleanup();
-        cont(currentSelection);
-    };
-
-    var keyCommand = function(event) {
+    keyCommand = function(event) {
         var key = event.which;
+	event.stopPropagation();
         if (key === 38) {//keyup
             var i=0;
             if ((currentSelection.parent().length > 0) && 
@@ -152,9 +143,23 @@ var selectItem = function(cont) {
             cleanup();
             cont(null);
         }
-    };
+	return false;
+    },
 
-    var cancelClick = captureClick(commitSelect);
+    cleanup = function() {
+        $('body').off('mousemove.highlighter', 
+                      selectCurrentMouse);
+        $('body').off('keydown.highlighter', keyCommand);
+        cancelClick();
+    },
+
+    commitSelect = function(evt) {
+        cleanup();
+        cont(currentSelection);
+    },
+
+    cancelClick = captureClick(commitSelect);
+
 
 
     $('body').on('mousemove.highlighter', 
@@ -208,7 +213,7 @@ var makeEltFinder = function (elt,useclass) {
 
 var choosePaginator = function(cont) {
     selectItem(function(elt) {
-	    cont(makeEltFinder(elt,true))
+	    cont(makeEltFinder(elt,true));
 	});
 };
 
@@ -221,12 +226,16 @@ var shredElement = function(elt) {
         if (text.length > 0) {
             scraped[signature] = text;
         }
-        if (node.nodeType=ELEMENT_NODE) {
+        if (node.nodeType === ELEMENT_NODE) {
+	    //might want to scrape pictures some day
+	    //	    if (node.nodeName === 'IMG') {
+	    //		scraped[signature] = '<img src="' + node.src + '">';
+	    //	    }
             if (node.href) {
-                scraped[signature + " href"] = node.href;
+                scraped[signature + " > href"] = node.href;
             }
             if (node.src) {
-                scraped[signature + "src"] = node.src;
+                scraped[signature + " > src"] = node.src;
             }
             var child=node.firstChild;
             signature = signature + " >";
@@ -402,8 +411,10 @@ var startScrape = function(elt) {
 	    }
 
 	    paginate = paginate.find('input[name="paginate"]').is(':checked');
-	    limit = parseInt(urlForm.find('input[name="paginate-limit"]').val());
-	    if (isNaN(limit)) limit=0;
+	    limit = parseInt(urlForm.find('input[name="paginate-limit"]').
+			     val(),
+			     10);
+	    if (isNaN(limit)) {limit=0;}
 	    urlForm.remove();
 	    term.close();
 	    if (paginate) {
@@ -444,7 +455,7 @@ var startScrape = function(elt) {
 			    var nextLink = null;
 			    receiveScrape(shredPage(doc,path));
 
-			    if (paginator && (limit != 0)) {
+			    if (paginator && (limit !== 0)) {
 				//feature: a negative limit will run forever
 				nextLink = paginator(doc)
 				    .parents()
@@ -492,9 +503,13 @@ var startScrape = function(elt) {
     };
     $(path).css('background-color','red');
     getSettings(function(settings) {
-	    scrapeUrls(settings.urls, path, 
-		       settings.paginator, settings.limit, 
-		       showResults);
+	    if (settings.urls) {
+		scrapeUrls(settings.urls, path, 
+			   settings.paginator, settings.limit, 
+			   showResults);
+	    } else {
+		showResults(tabulate(shredPage(document, path)));
+	    }
 	});
 };
 
@@ -504,9 +519,9 @@ var startScrape = function(elt) {
 var main = function() {
     alert("Move the mouse to select an item.  Use the up-arrow key to widen the selection.  Hit return when done.");
     selectItem(startScrape);
-}
+};
 
-    var startIt = function() {
+var startIt = function() {
 	$(document).ready(main);
     };
 
