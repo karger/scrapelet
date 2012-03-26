@@ -4,7 +4,10 @@ const PAGE_RATE=1000; //rate at which pages are opened to scrape
 
 var MyWindow = {sameDoc: false, zIndex: 5001};
 MyWindow.open = function(url, title, sameDoc) {
-    var win, body, setUrl;
+    var win, body, doc, setUrl;
+    if (console) {
+	console.log("OPEN:  " + url);
+    }
     sameDoc = sameDoc || this.sameDoc;
     if (this.sameDoc) { //frame 
 	if (url) {
@@ -21,25 +24,25 @@ MyWindow.open = function(url, title, sameDoc) {
 		    "z-index": (this.zIndex++).toString()
 		    });
 	$("body").prepend(win);
-	body = function() {
-	    return win.contents().find("body");
+	doc = function() {return win.contents();};
+	close = function() {
+	    if (console) {
+		console.log("CLOSE: " + url);
+	    }
+	    win.remove();
 	}
-	body().text(title);
-	close = function() {win.remove();}
-	setURL = function (newUrl) {
+	setUrl = function (newUrl) {
 	    url = newUrl;
 	    win.src = newUrl;
 	}
     } else { //new window
-	win = window.open(url,title);
-	if (!url) {
-	    win.document.write('<html><head><title>'+title+
-			       '</title></head><body></body></html>');
-	}
-	body = function() {
-	    return $(win.document.body);
-	}
+	win = window.open(url);
+	if (title) win.document.title='title';
+	doc = function() {return $(win.document);}
 	close = function() {
+	    if (console) {
+		console.log("CLOSE: " + url);
+	    }
 	    win.close();
 	}
 	setUrl = function (newUrl)  {
@@ -48,8 +51,21 @@ MyWindow.open = function(url, title, sameDoc) {
 	}
     }
     load = function(handler) {
+	//let's make sure load is eventually called
+	//even if load never fires
 	if (url) {
-	    $(win).load(handler);
+	    var done = false;
+	    var timerId;
+	    var doIt = function() {
+		if (!done) {
+		    done=true;
+		    handler();
+		    $(win).off('load',handler);
+		    clearTimeout(timerId);
+		}
+	    }
+	    timerId = setTimeout(doIt, 20000);
+	    $(win).load(doIt);
 	} else {
 	    handler();
 	}
@@ -57,7 +73,9 @@ MyWindow.open = function(url, title, sameDoc) {
 
 
     return {
-	body: body,
+	title: title,
+	document: doc,
+	body: function () {return doc().find('body');},
 	load: load,
 	setUrl: setUrl,
 	close: close
@@ -84,6 +102,25 @@ var timedEach = function(items, f, wait, cont, finalWait) {
 
     timedInternal();
 };
+
+var timedEach2 = function(iterator, f, wait, cont, finalWait) {
+
+    finalWait = finalWait || 0;
+    var once = function() {
+	item = iterator();
+	if (item) {
+	    f(item);
+	    setTimeout(once, wait);
+	} else {
+	    setTimeout(cont, finalWait);
+	}
+    }
+    
+    once();
+
+};
+
+
 
 //bind (once) to a click event
 //but override any other click events
@@ -223,14 +260,14 @@ var makeEltFinder = function (elt,useclass) {
     }
 
     return finder;
-}
+};
 
 
-    var choosePaginator = function(cont) {
+var choosePaginator = function(cont) {
 	selectItem(function(elt) {
 		cont(makeEltFinder(elt,true))
 	    });
-    }
+};
 
 
 var shredElement = function(elt) {
@@ -318,13 +355,60 @@ var scrapeUrl = function(url,path,cont,sameDoc)  {
     var win = MyWindow.open(url);
     win.load(function () {
 	    setTimeout(function () {
-		    cont(shredPage(win.body().parent(),path));
+		    cont(shredPage(win.document(),path));
 		    win.close();
 		},
 		PAGE_WAIT);
 	});
 };
 
+
+var Pacer = function () {
+    var queue = [],
+    pending = 0,
+    endings = [],
+    debug = {},
+    timerId;
+
+    var finish = function () {
+	clearInterval(timerId);
+	for (var i=0; i<endings.length; i++) {
+	    endings[i]();
+	}
+    }
+
+    var doneOne = function(label) {
+	--pending;
+	if (label) {delete(debug.label);}
+    }
+
+    var tick = function() {
+	if (console) {
+	    console.log("TICK:  " + pending + "," + queue.length);
+	}
+	if (queue.length > 0) {
+	    var task = queue.shift();
+	    task(doneOne); //task should callback when finished
+	}
+	if (pending === 0) {
+	    finish();
+	}
+    }
+    
+    this.start = function(period) {
+	timerId = setInterval(tick, period);
+    }
+
+    this.await = function(cont) {
+	endings.push(cont);
+    }
+
+    this.todo = function(f, label) {
+	++pending;
+	debug[label] = true;
+	queue.push(f);
+    }
+}
 
 var startScrape = function(elt) {
 
@@ -382,87 +466,60 @@ var startScrape = function(elt) {
     }
 
 
-    var scrapePagination = function(url, path, paginator, limit, cont, 
-				    sameDoc) {
-	var scrapedItems=[];
-	var receiveScrape = function(items) {
-	    [].push.apply(scrapedItems,items);
-	}
-	var complete;
-	if (sameDoc) {
-	    frame = $('<iframe src=' + url + ' target="scraper"></iframe>');
-	    frame.css({"position": "relative", "width":"100%",
-			"height":"400px", "z-index":"5001"});
-	    $("body").prepend(frame);
-	    getBody = function() {
-		return frame.contents();
-	    }
-	    setPage = function(url,cont) {
-		frame.src = url;
-		frame.load(cont);
-	    }
-	    complete = function() {
-		cont(tabulate(scrapedItems));
-		frame.remove();
-	    };
-	} else {
-	    win=window.open(url);
-	    getBody = function() {
-		return $(win.document.documentElement);
-	    }
-	    setPage = function(url,cont) {
-		win.location.href = url;
-		$(win).load(cont);
-	    }
-	    complete = function() {
-		cont(tabulate(scrapedItems));
-		win.close();
-	    };
-	}
-
-	win = MyWindow.open(url, 'Paginate');
-	getBody = function() {
-	    return win.body();
-	}
-
-	var doPage = function() {
-	    var body = getBody();
-	    receiveScrape(shredPage(body,path));
-	    var nextButton = paginator(body).parents().andSelf().filter('[href]').attr('href');
-	    if ((limit-- > 0) && nextButton && (nextButton.length > 0)) {
-		//		nextButton.click();
-		if (console) {console.log(nextButton);}
-		setPage(nextButton,
-			function() {
-			    setTimeout(doPage, PAGE_WAIT);
-			});
-	    } else {
-		complete();
-	    }
-	}
-
-	setTimeout(doPage, PAGE_WAIT);
-    };
-
-    var scrapeUrls = function(urls, path, cont) {
+    var scrapeUrls = function(urls, path, paginator, limit, cont) { 
 
 	var scrapedItems=[];
 	var receiveScrape = function(items) {
 	    [].push.apply(scrapedItems,items);
 	}
 
-	if (urls) {
-	    timedEach(urls, 
-		      function(url) {scrapeUrl(url,path,receiveScrape);},
-		      PAGE_RATE,
-		      function() {cont(tabulate(scrapedItems));},
-		      PAGE_WAIT
-		      );
-	} else {
-	    //just scrape current page
-	    cont(tabulate(shredPage(document, path)));
+	var pacer = new Pacer();
+
+	var scrapeTask = function(url, limit) {
+	    return function(cont) {
+		scrapeUrl(url, limit, cont);
+	    }
 	}
-    };
+
+	var scrapeUrl = function(url, limit, cont) {
+	    var win = MyWindow.open(url);
+	    win.load(function () { 
+		    setTimeout(function() {
+			    var doc = win.document();
+			    if (console && (doc.length > 0)) {
+				var debugUrl = 
+				    doc.get(0).src ||
+				    (doc.get(0).location &&
+				     doc.get(0).location.href);
+				console.log("DONE:  " + debugUrl);
+			    }
+			    var nextLink = null;
+			    receiveScrape(shredPage(doc,path));
+
+			    if (paginator && (limit > 0)) {
+				nextLink = paginator(doc)
+				    .parents()
+				    .andSelf()
+				    .filter('[href]')
+				    .attr('href');	
+				if (nextLink) {
+				    pacer.todo(scrapeTask(nextLink, limit-1),
+					       nextLink);
+				}
+			    }
+			    win.close();
+			    cont(url);
+			},
+			1000);//leave some time for js to settle
+		});
+	};
+
+	for (i=0; i<urls.length; i++) {
+	    pacer.todo(scrapeTask(urls[i], limit), urls[i]);
+	}
+	pacer.await(function() {cont(tabulate(scrapedItems))});
+	pacer.start(500);
+    }
 
     var showResults = function(items) {
 	var results=$("<table style='border-collapse:true;'></table>");
@@ -485,13 +542,9 @@ var startScrape = function(elt) {
     };
     $(path).css('background-color','red');
     getSettings(function(settings) {
-	    if (settings.paginator) {
-		scrapePagination(window.location.href, path, 
+		scrapeUrls(settings.urls, path, 
 				 settings.paginator, 10, 
-				 showResults,false)
-		    } else {
-		scrapeUrls(settings.urls, path, showResults);
-	    }
+				 showResults);
 	});
 }
 
