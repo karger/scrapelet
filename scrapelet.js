@@ -2,6 +2,7 @@ if (typeof (ELEMENT_NODE)==='undefined') {
     ELEMENT_NODE=1;
 }
 
+// abstract a window so you can use a pop-open window or an iframe
 var MyWindow = {sameDoc: false, zIndex: 5001};
 MyWindow.open = function(url, title, sameDoc) {
     var win, body, doc, setUrl, close, load;
@@ -56,12 +57,12 @@ MyWindow.open = function(url, title, sameDoc) {
 
     return {
         title: title,
-        document: doc,
-        body: function () {return doc().find('body');},
-        load: load,
-        setUrl: setUrl,
-        close: close
-    };
+	    document: doc,
+	    body: function () {return doc().find('body');},
+	    load: load,
+	    setUrl: setUrl,
+	    close: close
+	    };
 };
 
 
@@ -70,21 +71,20 @@ MyWindow.open = function(url, title, sameDoc) {
 //returns a function that can be called to cancel the listener
 var captureClick = function (cont) {
     //can't use jquery because it doesn't do events in capture phase
-    //so it can't preventDefault soon enough to prevent following links
+    //so it can't preventDefault soon enough to prevent other click events.
+    //Unlike jq, returning false in a standard event handler does NOT
+    //prevent bubbling/default, so we need to force that explicitly
     var listener = function(evt) {
 	evt.stopPropagation();
 	evt.preventDefault();
 	document.removeEventListener('click', listener, true);
-	setTimeout(function() {
-		cont(evt.target);
-	    }, 
-	    10); //let this event handler finish 1st
-	return(false);
+	cont(evt.target);
+	return false; 
     };
     document.addEventListener('click', listener, true);
     return function() {
-	    document.removeEventListener('click', listener, true);
-	};
+	document.removeEventListener('click', listener, true);
+    };
 };
 
 
@@ -94,6 +94,7 @@ var selectItem = function(cont) {
     var currentSelection,
     currentSelectionColor,
     currentSelectionBorder,
+    currentFrame,
     history = [],
     
     unhighlight = function () {
@@ -147,10 +148,11 @@ var selectItem = function(cont) {
     },
 
     cleanup = function() {
-        $('body').off('mousemove.highlighter', 
-                      selectCurrentMouse);
-        $('body').off('keydown.highlighter', keyCommand);
-        cancelClick();
+        allFrames.off('mousemove.highlighter', selectCurrentMouse);
+        allFrames.off('keydown.highlighter', keyCommand);
+	allFrames.each(function() {
+		this.removeEventListener('click', captureClick, true);
+	    });
     },
 
     commitSelect = function(evt) {
@@ -158,14 +160,31 @@ var selectItem = function(cont) {
         cont(currentSelection);
     },
 
-    cancelClick = captureClick(commitSelect);
+    captureClick = function(evt) {
+	evt.stopPropagation();
+	evt.preventDefault();
+	setTimeout(function() {commitSelect(evt.target);}, 10)
+	return false; 
+    },
+
+    allFrames = $('body');
 
 
+    for (i=0; i < window.frames.length; i++) {
+	if (window.frames[i].location &&
+	    window.frames[i].location.protocol === window.location.protocol &&
+	    window.frames[i].location.host === window.location.host) {
+	    currentFrame = $();
+	    allFrames = allFrames.add("body",window.frames[i].document);
+	}
+    }
 
-    $('body').on('mousemove.highlighter', 
-                 selectCurrentMouse);
-    $('body').on('keydown.highlighter', keyCommand);
 
+    allFrames.on('mousemove.highlighter', selectCurrentMouse);
+    allFrames.on('keydown.highlighter', keyCommand);
+    allFrames.each(function() {this.addEventListener('click',
+						     captureClick,
+						     true);});
 };
 
 var describePath = function(elt, depth, useclass) {
@@ -363,18 +382,93 @@ var Pacer = function () {
     };
 };
 
+
+var scrapeForm = function (cont) {
+    var settings = {defaults: {}, varying: []};
+
+    var learnForm = function(cont, win) {
+
+	var getVarying = function(evt) {
+	    var receiveField = function(field) {
+		if (field === null) {
+		    //user finished; return results
+		    cont();
+		
+		} else {
+		    if (field.nodeName = "INPUT") {
+			settings.varying.push(field.attr('name'));
+		    } else {
+			alert("invalid field selected.");
+		    }
+		    selectItem(receiveField, win);
+		}
+	    }
+	    alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done");
+
+	    selectItem(receiveField, win);
+	}
+
+	var parseForm = function(evt) {
+	    var form = $(evt.target);
+	
+	    settings.defaults = $(this).serializeArray();
+	    settings.formPath = describePath(form, 20);
+	    getVarying();
+	    return false;
+	}
+
+	win = win || window;
+	$(win.document.body).find('form').one('submit', parseForm);
+	win.alert("fill out this form for a typical query, then press submit");
+    };
+    
+    var fillForm = function() {
+	var form = $(settings.formPath);
+	var i;
+	for (i=0; i<settings.varying.length; i++) {
+	    form.find('input[name="' + varying[i] +'"]')
+		.replaceWith('<input name="' + varying[i] 
+			     + '" type="textarea"></input>');
+	}
+	alert("Fill in the values you want to submit, one per line.  Then click the submit button");
+	form.one('submit', receiveValues);
+    }
+
+    var receiveValues = function () {
+	var i;
+	var count=0;
+	var form = $(settings.formPath);
+	for (i=0; i<settings.varying.length; i++) {
+	    var field = settings.varying[i];
+	    var values = form.find('input[name="' + field +'"]')
+		.val().split('\n');
+	    if ((count > 0) && (values.length !== count)) {
+		alert("mismatched number of values in different fields!");
+	    }
+	    count = values.length;
+	    settings.varying[i] = {name: settings.varying[i],
+				   values: values};
+	}
+    }
+    
+    if (cont) 
+	cont(settings);
+};
+
+
 var startScrape = function(elt) {
 
     var path=describePath(elt,20);
     var term = MyWindow.open(null, 'Configure Scraper');
+    var startDoc = elt.get(0).ownerDocument; //possibly in iframe
     var msg = term.body();
     var getSettings = function(cont) {
 
-	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages</input></div></div>');
+	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
 
-	var urlList=$("<div><h1>Choose URLs</h1><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + window.location + "</textarea>").hide();
+	var urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide();
 
-	var paginate = $("<div><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
+	var paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
 	var paginateCheckbox = paginate.find('input[name="paginate"]');
 
 	var paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>");
@@ -386,12 +480,17 @@ var startScrape = function(elt) {
 	.append(paginate).append(scrapeButton);
 
 	scrapeChoice.find('input[name="scrape-choice"]').change(function() {
-		if (scrapeChoice.find('input[name="scrape-choice"]:checked')
-		    .val() === "self") {
+		var choice = 
+		    scrapeChoice.find('input[name="scrape-choice"]:checked')
+		    .val();
+		if (choice === "list") {
+		    urlList.show();
+		} else {
 		    urlList.hide();
+		}
+		if (choice === "self") {
 		    paginate.hide();
 		} else {
-		    urlList.show();
 		    paginate.show();
 		}
 	    });
@@ -447,24 +546,31 @@ var startScrape = function(elt) {
 	    };
 	};
 
+	var doneUrls = {};
 	var scrapeUrl = function(url, limit, cont) {
 	    var win = MyWindow.open(url);
+	    doneUrls[url] = true;
 	    win.load(function () { 
 		    setTimeout(function() {
 			    var doc = win.document();
-			    var nextLink = null;
+			    var anchor, nextLink = null;
 			    receiveScrape(shredPage(doc,path));
 
 			    if (paginator && (limit !== 0)) {
 				//feature: a negative limit will run forever
-				nextLink = paginator(doc)
+				anchor = paginator(doc)
 				    .parents()
 				    .andSelf()
-				    .filter('[href]')
-				    .attr('href');      
-				if (nextLink) {
-				    pacer.todo(scrapeTask(nextLink, limit-1),
-					       nextLink);
+				    .filter('[href]');
+				if (anchor.length > 0) {
+				    //use .href instead of .attr['href']
+				    //to ensure getting absolute uri 
+				    nextLink = anchor.get(0).href;
+				    if (nextLink && !doneUrls[nextLink]) {
+					pacer.todo(scrapeTask(nextLink, 
+							      limit-1),
+						   nextLink);
+				    }
 				}
 			    }
 			    win.close();
@@ -508,7 +614,7 @@ var startScrape = function(elt) {
 			   settings.paginator, settings.limit, 
 			   showResults);
 	    } else {
-		showResults(tabulate(shredPage(document, path)));
+		showResults(tabulate(shredPage(startDoc, path)));
 	    }
 	});
 };
@@ -517,13 +623,16 @@ var startScrape = function(elt) {
 
 //bookmarklet cruft.  load necessary scripts, then run.
 var main = function() {
+    scrapeForm(function (settings) {
+	    if (console) console.log(settings);
+	});
     alert("Move the mouse to select an item.  Use the up-arrow key to widen the selection.  Hit return when done.");
     selectItem(startScrape);
 };
 
 var startIt = function() {
-	$(document).ready(main);
-    };
+    $(document).ready(main);
+};
 
 var loadScript = function(script, cont) {
     var jsCode=document.createElement('script');
@@ -532,4 +641,4 @@ var loadScript = function(script, cont) {
     document.body.appendChild(jsCode);
 };
 
-loadScript("http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js","startIt()");
+loadScript("http://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js","startIt()");
