@@ -65,6 +65,47 @@ MyWindow.open = function(url, title, sameDoc) {
 	    };
 };
 
+//for future use, if you want to handle pages with iframes
+var allFrames = function(win) {
+
+    win = win || window;
+    result = $('body',win);
+
+    for (i=0; i < win.frames.length; i++) {
+	if (win.frames[i].location &&
+	    win.frames[i].location.protocol === win.location.protocol &&
+	    win.frames[i].location.host === win.location.host) {
+	    result = result.add("body",win.frames[i].document);
+	}
+    }
+
+};
+
+//sequencer for asynchronous functions.
+//takes a list of functions, each of which should take one argument:
+//a deferred object that the function should resolve when it finishes.
+//deferredSequence does the bookkeeping to execute one after the other.
+//each can depend on previous state.
+//returns a promise object that resolves when the last functions does
+//or, if any function in list fails, overall promise fails
+var deferredSequence = function() {
+    var args = Array.prototype.slice.call(arguments);
+    var allDone = $.Deferred();
+    var fail = function () {allDone.reject();};
+    var next = function() {
+	if (args.length === 0) {
+	    allDone.resolve();
+	} else {
+	    var deferred = $.Deferred();
+	    deferred.done(next);
+	    deferred.fail(fail);
+	    (args.shift())(deferred);
+	};
+    };
+    
+    next();
+    return allDone.promise();
+};
 
 //bind (once) to a click event
 //but override any other click events
@@ -75,6 +116,7 @@ var captureClick = function (cont) {
     //Unlike jq, returning false in a standard event handler does NOT
     //prevent bubbling/default, so we need to force that explicitly
     var listener = function(evt) {
+	alert('outer click');
 	evt.stopPropagation();
 	evt.preventDefault();
 	document.removeEventListener('click', listener, true);
@@ -89,22 +131,29 @@ var captureClick = function (cont) {
 
 
 //when called, lets user interactively choose a page element
-//when done, invokes cont passing chosen element
-var selectItem = function(cont) {
+//returns a deferred object that will be resolved when user chooses element
+var selectItem = function(win) {
     var currentSelection,
     currentSelectionColor,
     currentSelectionBorder,
-    currentFrame,
+    currentSelectionPath,
     history = [],
+    highlightStyle = $('<style>.scraper-highlight {background-color: wheat}</style>'),
     
+    done = $.Deferred(),
+    win = win || window,
+
     unhighlight = function () {
         if (currentSelection) {
+	    $(currentSelectionPath).removeClass('scraper-highlight');
             currentSelection.css('background',currentSelectionColor);
             currentSelection.css('border',currentSelectionBorder);
         }
     },
 
     highlight = function () {
+	$(currentSelectionPath).addClass('scraper-highlight');
+	//use inline style to override any class-based styling
         currentSelectionColor=currentSelection.css('background');
         currentSelectionBorder=currentSelection.css('border');
         currentSelection.css('background-color','yellow');
@@ -112,9 +161,14 @@ var selectItem = function(cont) {
     },
 
     updateSelect = function(elt) {
-        unhighlight();
-        currentSelection=elt;
-        highlight();
+	if (currentSelection !== elt) {
+	    unhighlight();
+	    currentSelection=elt;
+	    if (elt) {
+		currentSelectionPath = describePath(currentSelection,20);
+		highlight();
+	    }
+	}
     },
 
     selectCurrentMouse = function(event) {
@@ -141,23 +195,33 @@ var selectItem = function(cont) {
             commitSelect();
         }
         else if (key === 27) {//escape
-            cleanup();
-            cont(null);
+	    updateSelect(null);
+	    commitSelect();
         }
 	return false;
     },
 
+    setup = function() {
+	highlightStyle.appendTo(body);
+	body.on('mousemove.highlighter', selectCurrentMouse);
+	body.on('keydown.highlighter', keyCommand);
+	body.each(function() {
+		this.addEventListener('click', captureClick, true);});
+    },
+
     cleanup = function() {
-        allFrames.off('mousemove.highlighter', selectCurrentMouse);
-        allFrames.off('keydown.highlighter', keyCommand);
-	allFrames.each(function() {
+	unhighlight();
+	highlightStyle.remove();
+        body.off('mousemove.highlighter', selectCurrentMouse);
+        body.off('keydown.highlighter', keyCommand);
+	body.each(function() {
 		this.removeEventListener('click', captureClick, true);
 	    });
     },
 
     commitSelect = function(evt) {
         cleanup();
-        cont(currentSelection);
+	done.resolve(currentSelection);
     },
 
     captureClick = function(evt) {
@@ -167,36 +231,23 @@ var selectItem = function(cont) {
 	return false; 
     },
 
-    allFrames = $('body');
+    body=$('body',win.document);
 
+    setup();
 
-    for (i=0; i < window.frames.length; i++) {
-	if (window.frames[i].location &&
-	    window.frames[i].location.protocol === window.location.protocol &&
-	    window.frames[i].location.host === window.location.host) {
-	    currentFrame = $();
-	    allFrames = allFrames.add("body",window.frames[i].document);
-	}
-    }
-
-
-    allFrames.on('mousemove.highlighter', selectCurrentMouse);
-    allFrames.on('keydown.highlighter', keyCommand);
-    allFrames.each(function() {this.addEventListener('click',
-						     captureClick,
-						     true);});
+    return done.promise();
 };
 
-var describePath = function(elt, depth, useclass) {
-    if (elt.length === 0 || depth<0) {
+var describePath = function(elt, depth, useClass) {
+    if (!elt || elt.length === 0 || depth<0) {
         return "";
     }
     if (elt.is("body")) {
         return "body";
     } else {
-        var prior = describePath(elt.parent(),depth-1, useclass);
+        var prior = describePath(elt.parent(),depth-1, useClass);
         var classSelector = 
-        (useclass && elt.attr('class') && elt.attr('class').length > 0) 
+        (useClass && elt.attr('class') && elt.attr('class').length > 0) 
         ? "." + elt.attr('class').split(' ').join('.')
         : "";
 
@@ -204,9 +255,9 @@ var describePath = function(elt, depth, useclass) {
     }
 };
 
-var makeEltFinder = function (elt,useclass) {
+var makeEltFinder = function (elt, useClass) {
     var 
-    path = describePath(elt, 20, useclass),
+    path = describePath(elt, 20, useClass),
     src = elt.attr('src'),
     text = elt.text(),
     finder = function(jq) {
@@ -230,10 +281,12 @@ var makeEltFinder = function (elt,useclass) {
 };
 
 
-var choosePaginator = function(cont) {
-    selectItem(function(elt) {
-	    cont(makeEltFinder(elt,true));
+var choosePaginator = function() {
+    done = $.Deferred();
+    selectItem().done(function(elt) {
+	    done.resolve(makeEltFinder(elt,true));
 	});
+    return done.promise();
 };
 
 
@@ -324,18 +377,8 @@ var tabulate = function(items) {
     return rows;
 };
 
-var scrapeUrl = function(url,path,cont,sameDoc)  {
-    var win = MyWindow.open(url);
-    win.load(function () {
-            setTimeout(function () {
-                    cont(shredPage(win.document(),path));
-                    win.close();
-                },
-                3000);
-        });
-};
 
-
+//schedule a task queue.  add/execute tasks
 var Pacer = function () {
     var 
     queue = [],
@@ -383,90 +426,111 @@ var Pacer = function () {
 };
 
 
-var scrapeForm = function (cont) {
-    var settings = {defaults: {}, varying: []};
+var configForm = function (win) {
+    var settings = {varying: []};
+    var form;
+    var result = $.Deferred();
 
-    var learnForm = function(cont, win) {
-
-	var getVarying = function(evt) {
-	    var receiveField = function(field) {
-		if (field === null) {
-		    //user finished; return results
-		    cont();
-		
-		} else {
-		    if (field.nodeName = "INPUT") {
-			settings.varying.push(field.attr('name'));
-		    } else {
-			alert("invalid field selected.");
-		    }
-		    selectItem(receiveField, win);
-		}
-	    }
-	    alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done");
-
-	    selectItem(receiveField, win);
-	}
+    var getForm = function(done) {
 
 	var parseForm = function(evt) {
-	    var form = $(evt.target);
+	    form = $(evt.target);
 	
-	    settings.defaults = $(this).serializeArray();
+	    settings.fixed = $(this).serializeArray();
 	    settings.formPath = describePath(form, 20);
-	    getVarying();
+	    evt.stopPropagation();
+	    evt.preventDefault();
+	    done.resolve();
+	    return false;  //so form isn't submitted
+	}
+
+	win.alert("Fill out this form for a typical query, then submit it.");
+	$(win.document.body).find('form').one('submit', parseForm);
+    }
+
+    var getVarying = function(done) {
+	var deferred = $.Deferred();
+
+	var receiveField = function(field) {
+	    if (field === null) {
+		//user finished; return results
+		done.resolve();
+	    } else {
+		if (field.attr('name')) {
+		    field.css('background-color','red');
+		    settings.varying.push({name: field.attr('name')});
+		} else {
+		    alert("invalid field selected.");
+		}
+		selectItem(win).done(receiveField);
+	    }
+	}
+
+	alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done.");
+	selectItem(win).done(receiveField);
+    }
+
+    var fillVarying = function(done) {
+
+	var receiveValues = function (evt) {
+	    var i;
+	    var count=0;
+	    for (i=0; i<settings.varying.length; i++) {
+		var field = settings.varying[i].name;
+		var values = form.find('textarea[name="' + field +'"]')
+		    .val().split('\n');
+		if ((count > 0) && (values.length !== count)) {
+		    alert("mismatched number of values in different fields!");
+		}
+		count = values.length;
+		settings.varying[i].values = values;
+	    }
+	    done.resolve();
+	    evt.stopPropagation();
+	    evt.preventDefault();
 	    return false;
 	}
 
-	win = win || window;
-	$(win.document.body).find('form').one('submit', parseForm);
-	win.alert("fill out this form for a typical query, then press submit");
-    };
-    
-    var fillForm = function() {
-	var form = $(settings.formPath);
 	var i;
 	for (i=0; i<settings.varying.length; i++) {
-	    form.find('input[name="' + varying[i] +'"]')
-		.replaceWith('<input name="' + varying[i] 
-			     + '" type="textarea"></input>');
+	    form.find('input[name="' + settings.varying[i].name +'"]')
+		.replaceWith('<textarea name="' + settings.varying[i].name
+			     + '" rows=10">scraper values here</textarea>');
 	}
 	alert("Fill in the values you want to submit, one per line.  Then click the submit button");
 	form.one('submit', receiveValues);
     }
 
-    var receiveValues = function () {
-	var i;
-	var count=0;
-	var form = $(settings.formPath);
-	for (i=0; i<settings.varying.length; i++) {
-	    var field = settings.varying[i];
-	    var values = form.find('input[name="' + field +'"]')
-		.val().split('\n');
-	    if ((count > 0) && (values.length !== count)) {
-		alert("mismatched number of values in different fields!");
-	    }
-	    count = values.length;
-	    settings.varying[i] = {name: settings.varying[i],
-				   values: values};
-	}
-    }
-    
-    if (cont) 
-	cont(settings);
+
+    win = win || window;
+    deferredSequence(getForm,
+		     getVarying,
+		     fillVarying,
+		     function () {
+			 if (console) console.log(settings);
+			 result.resolve(settings)});
 };
 
+var scrapeForm = function(settings) {
+    
+};
 
-var startScrape = function(elt) {
+var configScrape = function(elt) {
+
+    if (elt===null) return;
 
     var path=describePath(elt,20);
     var term = MyWindow.open(null, 'Configure Scraper');
     var startDoc = elt.get(0).ownerDocument; //possibly in iframe
     var msg = term.body();
-    var getSettings = function(cont) {
+    var getSettings = function() {
+	var done = $.Deferred();
 
-	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
+	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages/pagination</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
 
 	var urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide();
+
+	var formURL = $("<div><h2>Form URL</h2><div>Enter the URL of the form you want to submit</div><input type='textfield' id='formurl' name='formurl' value = '" + startDoc.URL + "' size='80'></input>").hide();
 
 	var paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
 	var paginateCheckbox = paginate.find('input[name="paginate"]');
@@ -477,7 +541,36 @@ var startScrape = function(elt) {
 	var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
         
 	var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
-	.append(paginate).append(scrapeButton);
+	.append(formURL).append(paginate).append(scrapeButton);
+
+	var handleInput = function() {
+	    var urls, limit;
+
+	    if (scrapeChoice.find('input[name="scrape-choice"]:checked')
+		.val() === "self") {
+		urls = null;
+	    } else {
+		urls = urlList.find("#urls").val().split("\n");
+	    }
+
+	    paginate = paginate.find('input[name="paginate"]').is(':checked');
+	    limit = parseInt(urlForm
+			     .find('input[name="paginate-limit"]')
+			     .val(),
+			     10);
+	    if (isNaN(limit)) {limit=0;}
+	    if (paginate) {
+		alert('click on the "next" button');
+		choosePaginator().done(function(paginator) {
+			done.resolve({urls: urls, paginator: paginator, 
+				    limit: limit});
+		    });
+	    } else {
+		done.resolve({urls: urls});
+	    }
+	    urlForm.remove();
+	    term.close();
+	};
 
 	scrapeChoice.find('input[name="scrape-choice"]').change(function() {
 		var choice = 
@@ -493,40 +586,20 @@ var startScrape = function(elt) {
 		} else {
 		    paginate.show();
 		}
+		if (choice === "form") {
+		    formURL.show();
+		} else {
+		    formURL.hide();
+		}
 	    });
 
 	paginateCheckbox.change(function () {
 		paginateLimit.toggle(paginateCheckbox.is(':checked'));
 	    });
 
-	var handleInput = function() {
-	    var urls, limit;
-
-	    if (scrapeChoice.find('input[name="scrape-choice"]:checked')
-		.val() === "self") {
-		urls = null;
-	    } else {
-		urls = urlList.find("#urls").val().split("\n");
-	    }
-
-	    paginate = paginate.find('input[name="paginate"]').is(':checked');
-	    limit = parseInt(urlForm.find('input[name="paginate-limit"]').
-			     val(),
-			     10);
-	    if (isNaN(limit)) {limit=0;}
-	    urlForm.remove();
-	    term.close();
-	    if (paginate) {
-		alert('click on the "next" button');
-		choosePaginator(function(paginator) {
-			cont({urls: urls, paginator: paginator, limit: limit});
-		    });
-	    } else {
-		cont({urls: urls});
-	    }
-	};
 	scrapeButton.find("#scrapeButton").click(handleInput);
 	msg.append(urlForm);
+	return done.promise();
     };
 
 
@@ -558,6 +631,7 @@ var startScrape = function(elt) {
 
 			    if (paginator && (limit !== 0)) {
 				//feature: a negative limit will run forever
+				//until no pagination link is found
 				anchor = paginator(doc)
 				    .parents()
 				    .andSelf()
@@ -576,7 +650,7 @@ var startScrape = function(elt) {
 			    win.close();
 			    cont(url);
 			},
-			1000);//leave some time for js to settle
+			1000);//leave some time for page's js to run
 		});
 	};
 
@@ -608,7 +682,7 @@ var startScrape = function(elt) {
 	return;
     };
     $(path).css('background-color','red');
-    getSettings(function(settings) {
+    getSettings().done(function(settings) {
 	    if (settings.urls) {
 		scrapeUrls(settings.urls, path, 
 			   settings.paginator, settings.limit, 
@@ -623,11 +697,8 @@ var startScrape = function(elt) {
 
 //bookmarklet cruft.  load necessary scripts, then run.
 var main = function() {
-    scrapeForm(function (settings) {
-	    if (console) console.log(settings);
-	});
     alert("Move the mouse to select an item.  Use the up-arrow key to widen the selection.  Hit return when done.");
-    selectItem(startScrape);
+    selectItem().done(configScrape);
 };
 
 var startIt = function() {
