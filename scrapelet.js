@@ -2,68 +2,80 @@ if (typeof (ELEMENT_NODE)==='undefined') {
     ELEMENT_NODE=1;
 }
 
-// abstract a window so you can use a pop-open window or an iframe
-var MyWindow = {sameDoc: false, zIndex: 5001};
-MyWindow.open = function(url, title, sameDoc) {
-    var win, body, doc, setUrl, close, load;
-    sameDoc = sameDoc || this.sameDoc;
-    if (this.sameDoc) { //frame 
-        if (url) {
-            win = $("<iframe title='" + title + 
-                    "' src='" + url + 
-                    "' target='scraper'></iframe>");
-        } else {
-            win = $('<iframe title="'+title+'"></iframe>');
-        }
-        win.css({
-		top:"10px",
-                    width:"100%",
-                    height:"400px", 
-                    border: "3px solid black",
-                    "background-color": "white",
-                    "z-index": (this.zIndex++).toString()
-                    });
-        $("body").prepend(win);
-        doc = function() {return win.contents();};
-        close = function() {
-            win.remove();
-        };
-        setUrl = function (newUrl) {
-            url = newUrl;
-            win.src = newUrl;
-        };
-    } else { //new window
-        win = window.open(url);
-        if (title) {win.document.title='title';}
-        doc = function() {return $(win.document);};
-        close = function() {
-            win.close();
-        };
-        setUrl = function (newUrl)  {
-            url = newUrl;
-            win.location.href = newUrl;
-        };
+var debug = {
+    log: function (s) {
+        if (console) console.log(s);
     }
-    load = function(handler) {
-        //let's make sure load is eventually called
-        //even if load never fires
-        if (url) {
-            $(win).load(handler);
-        } else {
-            handler();
-        }
-    };
-
-
-    return {
-        title: title,
-	    document: doc,
-	    body: function () {return doc().find('body');},
-	    load: load,
-	    setUrl: setUrl,
-	    close: close
-	    };
 };
+
+if (typeof Object.create !== 'function') {
+    Object.create = function (o) {
+        function F() {}
+        F.prototype = o;
+        return new F();
+    };
+}
+
+String.prototype.hashCode = function(){
+    var hash = 0;
+    if (this.length == 0) return hash;
+    for (i = 0; i < this.length; i++) {
+        char = this.charCodeAt(i);
+        hash = ((hash<<5)-hash)+char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash;
+}
+
+// abstract a window so you can use a pop-open window or an iframe
+
+var MyFrame = {sameDoc: false, zIndex: 5001};
+MyFrame.open = function(url, title, sameDoc) {
+    var frame, win, oneLoad;
+    var close = function() {
+        win.close()
+        if (sameDoc) {
+            frame.remove();
+        }
+    }
+    debug.log('frame ' + url + ' ' + title);
+    if ((typeof(sameDoc) === null || typeof(sameDoc)==="undefined"))
+        sameDoc = this.sameDoc;
+    if (sameDoc) { //frame 
+        frame = $('<iframe title="'+title+'"></iframe>');
+        frame.css({
+            top:"10px",
+            width:"100%",
+            height:"400px", 
+            border: "3px solid black",
+            "background-color": "white",
+            "z-index": (this.zIndex++).toString()
+        });
+        $("body").prepend(frame);
+        win = frame.get(0).contentWindow;
+        if (url) win.document.location = url;
+    } else {
+        win = window.open(url, title);
+    }
+
+    //onload is a hack to deal with inconsistent asynchrony and
+    //behavior of load events in iframes and windows when target is
+    //about:blank 
+    //this case ought to be synchronous, but isn't always
+    //so we have to use load events, but these don't always fire
+    //see http://hsivonen.iki.fi/about-blank/
+    
+    oneLoad = function(f) {
+        if (!url) {
+            setTimeout(f, 100);
+        } else {
+            $(win).one('load',f);
+        }
+    }
+    return {contentWindow: win, close: close, oneLoad: oneLoad};
+};
+
+
 
 //for future use, if you want to handle pages with iframes
 var allFrames = function(win) {
@@ -72,11 +84,11 @@ var allFrames = function(win) {
     result = $('body',win);
 
     for (i=0; i < win.frames.length; i++) {
-	if (win.frames[i].location &&
-	    win.frames[i].location.protocol === win.location.protocol &&
-	    win.frames[i].location.host === win.location.host) {
-	    result = result.add("body",win.frames[i].document);
-	}
+        if (win.frames[i].location &&
+            win.frames[i].location.protocol === win.location.protocol &&
+            win.frames[i].location.host === win.location.host) {
+            result = result.add("body",win.frames[i].document);
+        }
     }
 
 };
@@ -93,43 +105,54 @@ var deferredSequence = function() {
     var allDone = $.Deferred();
     var fail = function () {allDone.reject();};
     var next = function() {
-	if (args.length === 0) {
-	    allDone.resolve();
-	} else {
-	    var deferred = $.Deferred();
-	    deferred.done(next);
-	    deferred.fail(fail);
-	    (args.shift())(deferred);
-	};
+        if (args.length === 0) {
+            allDone.resolve();
+        } else {
+            var deferred = $.Deferred();
+            deferred.done(next);
+            deferred.fail(fail);
+            (args.shift())(deferred);
+        };
     };
     
     next();
     return allDone.promise();
 };
 
-//bind (once) to a click event
-//but override any other click events
-//returns a function that can be called to cancel the listener
-var captureClick = function (cont) {
-    //can't use jquery because it doesn't do events in capture phase
-    //so it can't preventDefault soon enough to prevent other click events.
-    //Unlike jq, returning false in a standard event handler does NOT
-    //prevent bubbling/default, so we need to force that explicitly
-    var listener = function(evt) {
-	alert('outer click');
-	evt.stopPropagation();
-	evt.preventDefault();
-	document.removeEventListener('click', listener, true);
-	cont(evt.target);
-	return false; 
-    };
-    document.addEventListener('click', listener, true);
-    return function() {
-	document.removeEventListener('click', listener, true);
-    };
+
+//iterates an asynchronous function f over a range of values
+//serializes invocations---one doesn't begin till previous ends
+//f should return a deferred object
+var forDeferred = function(f, start, limit) {
+    var done = $.Deferred();
+    var forInner = function() {
+        var todo;
+        if (start >= limit) {
+            done.resolve();
+        } else {
+            todo = f(start++);
+            todo.done(forInner);
+        }
+    }
+    forInner();
+    return done;
 };
 
-
+var Slowly = function(period) {
+    period = period || 1000;
+    var last = $.Deferred().resolve();
+    var sleep = function (t) {
+        var done=$.Deferred();
+        setTimeout(function () {done.resolve();}, t);
+        return done.promise();
+    }
+    this.exec = function(f) {
+        last = last.pipe(function () {
+            f(); 
+            return sleep(period);
+        });
+    }
+}
 //when called, lets user interactively choose a page element
 //returns a deferred object that will be resolved when user chooses element
 var selectItem = function(win) {
@@ -145,15 +168,15 @@ var selectItem = function(win) {
 
     unhighlight = function () {
         if (currentSelection) {
-	    $(currentSelectionPath).removeClass('scraper-highlight');
+            $(currentSelectionPath).removeClass('scraper-highlight');
             currentSelection.css('background',currentSelectionColor);
             currentSelection.css('border',currentSelectionBorder);
         }
     },
 
     highlight = function () {
-	$(currentSelectionPath).addClass('scraper-highlight');
-	//use inline style to override any class-based styling
+        $(currentSelectionPath).addClass('scraper-highlight');
+        //use inline style to override any class-based styling
         currentSelectionColor=currentSelection.css('background');
         currentSelectionBorder=currentSelection.css('border');
         currentSelection.css('background-color','yellow');
@@ -161,14 +184,14 @@ var selectItem = function(win) {
     },
 
     updateSelect = function(elt) {
-	if (currentSelection !== elt) {
-	    unhighlight();
-	    currentSelection=elt;
-	    if (elt) {
-		currentSelectionPath = describePath(currentSelection,20);
-		highlight();
-	    }
-	}
+        if (currentSelection !== elt) {
+            unhighlight();
+            currentSelection=elt;
+            if (elt) {
+                currentSelectionPath = describePath(currentSelection,20);
+                highlight();
+            }
+        }
     },
 
     selectCurrentMouse = function(event) {
@@ -178,7 +201,7 @@ var selectItem = function(win) {
 
     keyCommand = function(event) {
         var key = event.which;
-	event.stopPropagation();
+        event.stopPropagation();
         if (key === 38) {//keyup
             var i=0;
             if ((currentSelection.parent().length > 0) && 
@@ -195,40 +218,45 @@ var selectItem = function(win) {
             commitSelect();
         }
         else if (key === 27) {//escape
-	    updateSelect(null);
-	    commitSelect();
+            updateSelect(null);
+            commitSelect();
         }
-	return false;
+        return false;
     },
 
     setup = function() {
-	highlightStyle.appendTo(body);
-	body.on('mousemove.highlighter', selectCurrentMouse);
-	body.on('keydown.highlighter', keyCommand);
-	body.each(function() {
-		this.addEventListener('click', captureClick, true);});
+        highlightStyle.appendTo(body);
+        body.on('mousemove.highlighter', selectCurrentMouse);
+        body.on('keydown.highlighter', keyCommand);
+        body.each(function() {
+            //can't use $.on() because it doesn't do events in
+            //capture phase, so it can't stop propagation soon enough
+            //to prevent other click events. 
+            this.addEventListener('click', captureClick, true);});
     },
 
     cleanup = function() {
-	unhighlight();
-	highlightStyle.remove();
+        unhighlight();
+        highlightStyle.remove();
         body.off('mousemove.highlighter', selectCurrentMouse);
         body.off('keydown.highlighter', keyCommand);
-	body.each(function() {
-		this.removeEventListener('click', captureClick, true);
-	    });
+        body.each(function() {
+            this.removeEventListener('click', captureClick, true);
+        });
     },
 
     commitSelect = function(evt) {
         cleanup();
-	done.resolve(currentSelection);
+        done.resolve(currentSelection);
     },
 
     captureClick = function(evt) {
-	evt.stopPropagation();
-	evt.preventDefault();
-	setTimeout(function() {commitSelect(evt.target);}, 10)
-	return false; 
+        //Unlike jq, returning false in a standard event handler does
+        //NOT prevent bubbling/default, so we need to force that explicitly 
+        evt.stopPropagation();
+        evt.preventDefault();
+        setTimeout(function() {commitSelect(evt.target);}, 10)
+        return false; 
     },
 
     body=$('body',win.document);
@@ -247,9 +275,9 @@ var describePath = function(elt, depth, useClass) {
     } else {
         var prior = describePath(elt.parent(),depth-1, useClass);
         var classSelector = 
-        (useClass && elt.attr('class') && elt.attr('class').length > 0) 
-        ? "." + elt.attr('class').split(' ').join('.')
-        : "";
+            (useClass && elt.attr('class') && elt.attr('class').length > 0) 
+            ? "." + elt.attr('class').split(' ').join('.')
+            : "";
 
         return prior + " > " + elt.get(0).nodeName + classSelector;
     }
@@ -264,14 +292,14 @@ var makeEltFinder = function (elt, useClass) {
         var found = jq.find(path);
         if (src || text) {
             found = found.filter(function() {
-                    return ((src && $(this).attr('src')===src) ||
-                            (text && $(this).text()===text));
-                }
-                );
+                return ((src && $(this).attr('src')===src) ||
+                        (text && $(this).text()===text));
+            }
+                                );
         }
 
         if (found.length > 1) {
-            alert("trouble identifying next button");
+            debug.log("vague element finder (" + path + ") returned" + found.length + "matches");
         }
         
         return found;
@@ -284,8 +312,8 @@ var makeEltFinder = function (elt, useClass) {
 var choosePaginator = function() {
     done = $.Deferred();
     selectItem().done(function(elt) {
-	    done.resolve(makeEltFinder(elt,true));
-	});
+        done.resolve(makeEltFinder(elt,true));
+    });
     return done.promise();
 };
 
@@ -299,10 +327,10 @@ var shredElement = function(elt) {
             scraped[signature] = text;
         }
         if (node.nodeType === ELEMENT_NODE) {
-	    //might want to scrape pictures some day
-	    //	    if (node.nodeName === 'IMG') {
-	    //		scraped[signature] = '<img src="' + node.src + '">';
-	    //	    }
+            //might want to scrape pictures some day
+            //      if (node.nodeName === 'IMG') {
+            //          scraped[signature] = '<img src="' + node.src + '">';
+            //      }
             if (node.href) {
                 scraped[signature + " > href"] = node.href;
             }
@@ -326,13 +354,13 @@ var shredElement = function(elt) {
 var shredPage = function(page,path) {
     var items = [];
     $(page)
-    .find(path)
-    .css('background-color','red')
-    .each(
-          function() {
-              items.push(shredElement(this));
-          }
-          );
+        .find(path)
+        .css('background-color','red')
+        .each(
+            function() {
+                items.push(shredElement(this));
+            }
+        );
     return items;
 };
 
@@ -366,9 +394,9 @@ var tabulate = function(items) {
         item=items[i];
         row=[];
         for (field in item) {
-	    if (item.hasOwnProperty(field)) {
-		row[fieldMap[field]]=item[field];
-	    }
+            if (item.hasOwnProperty(field)) {
+                row[fieldMap[field]]=item[field];
+            }
         }
         rows.push(row);
     }
@@ -378,53 +406,6 @@ var tabulate = function(items) {
 };
 
 
-//schedule a task queue.  add/execute tasks
-var Pacer = function () {
-    var 
-    queue = [],
-    pending = 0,
-    endings = [],
-    debug = {},
-    timerId;
-
-    var finish = function () {
-	var i;
-        clearInterval(timerId);
-        for (i=0; i<endings.length; i++) {
-            endings[i]();
-        }
-    };
-
-    var doneOne = function(label) {
-        --pending;
-        if (label) {delete(debug.label);}
-    };
-
-    var tick = function() {
-        if (queue.length > 0) {
-            var task = queue.shift();
-            task(doneOne); //task should callback when finished
-        }
-        if (pending === 0) {
-            finish();
-        }
-    };
-    
-    this.start = function(period) {
-        timerId = setInterval(tick, period);
-    };
-
-    this.await = function(cont) {
-        endings.push(cont);
-    };
-
-    this.todo = function(f, label) {
-        ++pending;
-        debug[label] = true;
-        queue.push(f);
-    };
-};
-
 
 var configForm = function (win) {
     var settings = {varying: []};
@@ -433,264 +414,313 @@ var configForm = function (win) {
 
     var getForm = function(done) {
 
-	var parseForm = function(evt) {
-	    form = $(evt.target);
-	
-	    settings.fixed = $(this).serializeArray();
-	    settings.formPath = describePath(form, 20);
-	    evt.stopPropagation();
-	    evt.preventDefault();
-	    done.resolve();
-	    return false;  //so form isn't submitted
-	}
+        var parseForm = function(evt) {
+            form = $(evt.target);
+            
+            settings.fixed = $(this).serializeArray();
+            settings.formPath = describePath(form, 20);
+            evt.stopPropagation();
+            evt.preventDefault();
+            done.resolve();
+            return false;  //so form isn't submitted
+        }
 
-	win.alert("Fill out this form for a typical query, then submit it.");
-	$(win.document.body).find('form').one('submit', parseForm);
+        win.alert("Fill out this form for a typical query, then submit it.");
+        $(win.document.body).find('form').one('submit', parseForm);
     }
 
     var getVarying = function(done) {
-	var deferred = $.Deferred();
+        var deferred = $.Deferred();
 
-	var receiveField = function(field) {
-	    if (field === null) {
-		//user finished; return results
-		done.resolve();
-	    } else {
-		if (field.attr('name')) {
-		    field.css('background-color','red');
-		    settings.varying.push({name: field.attr('name')});
-		} else {
-		    alert("invalid field selected.");
-		}
-		selectItem(win).done(receiveField);
-	    }
-	}
+        var receiveField = function(field) {
+            if (field === null) {
+                //user finished; return results
+                done.resolve();
+            } else {
+                if (field.attr('name')) {
+                    field.css('background-color','red');
+                    settings.varying.push({name: field.attr('name')});
+                } else {
+                    alert("invalid field selected.");
+                }
+                selectItem(win).done(receiveField);
+            }
+        }
 
-	alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done.");
-	selectItem(win).done(receiveField);
+        alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done.");
+        selectItem(win).done(receiveField);
     }
 
     var fillVarying = function(done) {
 
-	var receiveValues = function (evt) {
-	    var i;
-	    var count=0;
-	    for (i=0; i<settings.varying.length; i++) {
-		var field = settings.varying[i].name;
-		var values = form.find('textarea[name="' + field +'"]')
-		    .val().split('\n');
-		if ((count > 0) && (values.length !== count)) {
-		    alert("mismatched number of values in different fields!");
-		}
-		count = values.length;
-		settings.varying[i].values = values;
-	    }
-	    done.resolve();
-	    evt.stopPropagation();
-	    evt.preventDefault();
-	    return false;
-	}
+        var receiveValues = function (evt) {
+            var i;
+            var count=0;
+            for (i=0; i<settings.varying.length; i++) {
+                var field = settings.varying[i].name;
+                var values = form.find('textarea[name="' + field +'"]')
+                    .val().split('\n');
+                if ((count > 0) && (values.length !== count)) {
+                    alert("mismatched number of values in different fields!");
+                }
+                count = values.length;
+                settings.varying[i].values = values;
+            }
+            done.resolve();
+            evt.stopPropagation();
+            evt.preventDefault();
+            return false;
+        }
 
-	var i;
-	for (i=0; i<settings.varying.length; i++) {
-	    form.find('input[name="' + settings.varying[i].name +'"]')
-		.replaceWith('<textarea name="' + settings.varying[i].name
-			     + '" rows=10">scraper values here</textarea>');
-	}
-	alert("Fill in the values you want to submit, one per line.  Then click the submit button");
-	form.one('submit', receiveValues);
+        var i;
+        for (i=0; i<settings.varying.length; i++) {
+            form.find('input[name="' + settings.varying[i].name +'"]')
+                .replaceWith('<textarea name="' + settings.varying[i].name
+                             + '" rows=10">scraper values here</textarea>');
+        }
+        alert("Fill in the values you want to submit, one per line.  Then click the submit button");
+        form.one('submit', receiveValues);
     }
 
 
     win = win || window;
     deferredSequence(getForm,
-		     getVarying,
-		     fillVarying,
-		     function () {
-			 if (console) console.log(settings);
-			 result.resolve(settings)});
+                     getVarying,
+                     fillVarying,
+                     function () {
+                         debug.log(settings);
+                         result.resolve(settings)});
 };
 
-var scrapeForm = function(settings) {
-    
+var scrapeForm = function(form, settings) {
+    var i,j;
+    var formTask = function(i) {
+        return function(done) {
+            scrapeFormInstance(i,done);
+        }
+    }
+    var scrapeFormInstance = function(i, done) {
+        form.target="scraper"+i;
+        for (j=0; j<settings.varying.length; j++) {
+            form.find('input[name="' + settings.varying[i].name +'"]')
+                .val(settings.varying[j].values[i]);
+        }
+        form.submit();
+        //set up task of scraping results
+    }
+
+    for (i=0; i<settings.varying[0].values.length; i++) {
+        pacer.todo(formTask(i));
+    }
+
 };
+
+
+var scrapeUrls = function(urls, path, paginator, limit) { 
+    var done = $.Deferred()
+    , doneUrls = {}
+    , scrapedItems=[]
+    , seenHashes = {}
+    , receiveScrape = function(items) {
+        [].push.apply(scrapedItems,items);
+    }
+
+    , scrapeFrame = function(frame, limit, close) {
+        var doneFrame = $.Deferred()
+        , wrapUp = function () {
+            doneFrame.resolve();
+            if (close) frame.close();
+            }
+        , scrapeOne = function() {
+            var win = frame.contentWindow
+            , doc = $(win.document)
+            , anchor
+            , hash = doc.find('body').html().hashCode();
+
+            debug.log('loaded ' + win.location.href);
+
+            if (seenHashes[hash]) {
+                wrapUp();
+            } else {
+                seenHashes[hash]=true;
+                receiveScrape(shredPage(doc,path));
+
+                //feature: a negative limit will loop forever
+                //until no pagination link is found
+                //on some sites this may cause an infinite loop!
+                if (paginator && (limit-- !== 0) && 
+                    (anchor=paginator(doc)).length > 0) {
+                    //heuristic; use last match if have multiple
+                    anchor.get(anchor.length-1).click(); 
+                    setTimeout(scrapeOne, 2000);
+                } else {
+                    wrapUp();
+                }
+            }
+        }
+            
+        debug.log('scrape frame ' + frame.contentWindow.location.href);
+        frame.oneLoad(function () { 
+            setTimeout(scrapeOne, 2000);//add some time for page's js to run
+        });
+        return doneFrame.promise();
+    }
+
+    , scrapeForm = function(form, fills) {
+        forDeferred(function(i) {
+            pacer.enqueue()
+        },
+                    0, fills.length)
+    }
+
+    , scrapeUrl = function(url, limit) {
+        debug.log('scrape url ' + url);
+        var frame = MyFrame.open(url,url);
+        //use url as title so different pages don't overwrite same window
+        return scrapeFrame(frame, limit, true);
+    };
+
+    forDeferred(function(i) {
+        return scrapeUrl(urls[i], limit - 1);
+    },0,urls.length)
+        .done(function() {done.resolve(tabulate(scrapedItems))});
+    return done.promise();
+};
+
 
 var configScrape = function(elt) {
 
     if (elt===null) return;
+    scrollTo(0,0);
 
     var path=describePath(elt,20);
-    var term = MyWindow.open(null, 'Configure Scraper');
+    var term = MyFrame.open(null, 'Configure Scraper');
     var startDoc = elt.get(0).ownerDocument; //possibly in iframe
-    var msg = term.body();
     var getSettings = function() {
-	var done = $.Deferred();
+        var done = $.Deferred();
 
-	var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages/pagination</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
+        var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages/pagination</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
 
-	var urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide();
+        var urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide();
 
-	var formURL = $("<div><h2>Form URL</h2><div>Enter the URL of the form you want to submit</div><input type='textfield' id='formurl' name='formurl' value = '" + startDoc.URL + "' size='80'></input>").hide();
+        var formURL = $("<div><h2>Form URL</h2><div>Enter the URL of the form you want to submit</div><input type='textfield' id='formurl' name='formurl' value = '" + startDoc.URL + "' size='80'></input>").hide();
 
-	var paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
-	var paginateCheckbox = paginate.find('input[name="paginate"]');
+        var paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
+        var paginateCheckbox = paginate.find('input[name="paginate"]');
 
-	var paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>");
-	paginateLimit.hide().appendTo(paginate);
+        var paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>");
+        paginateLimit.hide().appendTo(paginate);
 
-	var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
+        var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
         
-	var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
-	.append(formURL).append(paginate).append(scrapeButton);
+        var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
+            .append(formURL).append(paginate).append(scrapeButton);
 
-	var handleInput = function() {
-	    var urls, limit;
+        var handleInput = function() {
+            var urls, limit;
 
-	    if (scrapeChoice.find('input[name="scrape-choice"]:checked')
-		.val() === "self") {
-		urls = null;
-	    } else {
-		urls = urlList.find("#urls").val().split("\n");
-	    }
+            if (scrapeChoice.find('input[name="scrape-choice"]:checked')
+                .val() === "self") {
+                urls = null;
+            } else {
+                urls = urlList.find("#urls").val().split("\n");
+            }
 
-	    paginate = paginate.find('input[name="paginate"]').is(':checked');
-	    limit = parseInt(urlForm
-			     .find('input[name="paginate-limit"]')
-			     .val(),
-			     10);
-	    if (isNaN(limit)) {limit=0;}
-	    if (paginate) {
-		alert('click on the "next" button');
-		choosePaginator().done(function(paginator) {
-			done.resolve({urls: urls, paginator: paginator, 
-				    limit: limit});
-		    });
-	    } else {
-		done.resolve({urls: urls});
-	    }
-	    urlForm.remove();
-	    term.close();
-	};
+            paginate = paginate.find('input[name="paginate"]').is(':checked');
+            limit = parseInt(urlForm
+                             .find('input[name="paginate-limit"]')
+                             .val(),
+                             10);
+            if (isNaN(limit)) {limit=0;}
+            if (paginate) {
+                alert('click on the "next" button');
+                choosePaginator().done(function(paginator) {
+                    done.resolve({urls: urls, paginator: paginator, 
+                                  limit: limit});
+                });
+            } else {
+                done.resolve({urls: urls});
+            }
+            urlForm.remove();
+            term.close();
+        };
 
-	scrapeChoice.find('input[name="scrape-choice"]').change(function() {
-		var choice = 
-		    scrapeChoice.find('input[name="scrape-choice"]:checked')
-		    .val();
-		if (choice === "list") {
-		    urlList.show();
-		} else {
-		    urlList.hide();
-		}
-		if (choice === "self") {
-		    paginate.hide();
-		} else {
-		    paginate.show();
-		}
-		if (choice === "form") {
-		    formURL.show();
-		} else {
-		    formURL.hide();
-		}
-	    });
+        scrapeChoice.find('input[name="scrape-choice"]').change(function() {
+            var choice = 
+                scrapeChoice.find('input[name="scrape-choice"]:checked')
+                .val();
+            if (choice === "list") {
+                urlList.show();
+            } else {
+                urlList.hide();
+            }
+            if (choice === "self") {
+                paginate.hide();
+            } else {
+                paginate.show();
+            }
+            if (choice === "form") {
+                formURL.show();
+            } else {
+                formURL.hide();
+            }
+        });
 
-	paginateCheckbox.change(function () {
-		paginateLimit.toggle(paginateCheckbox.is(':checked'));
-	    });
+        paginateCheckbox.change(function () {
+            paginateLimit.toggle(paginateCheckbox.is(':checked'));
+        });
 
-	scrapeButton.find("#scrapeButton").click(handleInput);
-	msg.append(urlForm);
-	return done.promise();
+        scrapeButton.find("#scrapeButton").click(handleInput);
+        setTimeout(function () {
+            //hack.  in ff, if you use the "iframe" version of
+            //myFrame, some weird race causes ff to clear the
+            //frame contents shortly after the frame is created.
+            //so if we create content too soon, it gets zapped.
+            //even worse, the document.ready() event gets fired
+            //*before* this clearing event, so we can't trigger on
+            //document.ready.  And window.load seems not to fire
+            //at all (unsurprising, since nothing is loaded!).     
+            $(term.contentWindow.document.body).append(urlForm);
+        },
+                   100);
+        return done.promise();
     };
 
-
-    var scrapeUrls = function(urls, path, paginator, limit, cont) { 
-
-	var i;
-	var scrapedItems=[];
-	var receiveScrape = function(items) {
-	    [].push.apply(scrapedItems,items);
-	};
-
-	var pacer = new Pacer();
-
-	var scrapeTask = function(url, limit) {
-	    return function(cont) {
-		scrapeUrl(url, limit, cont);
-	    };
-	};
-
-	var doneUrls = {};
-	var scrapeUrl = function(url, limit, cont) {
-	    var win = MyWindow.open(url);
-	    doneUrls[url] = true;
-	    win.load(function () { 
-		    setTimeout(function() {
-			    var doc = win.document();
-			    var anchor, nextLink = null;
-			    receiveScrape(shredPage(doc,path));
-
-			    if (paginator && (limit !== 0)) {
-				//feature: a negative limit will run forever
-				//until no pagination link is found
-				anchor = paginator(doc)
-				    .parents()
-				    .andSelf()
-				    .filter('[href]');
-				if (anchor.length > 0) {
-				    //use .href instead of .attr['href']
-				    //to ensure getting absolute uri 
-				    nextLink = anchor.get(0).href;
-				    if (nextLink && !doneUrls[nextLink]) {
-					pacer.todo(scrapeTask(nextLink, 
-							      limit-1),
-						   nextLink);
-				    }
-				}
-			    }
-			    win.close();
-			    cont(url);
-			},
-			1000);//leave some time for page's js to run
-		});
-	};
-
-	for (i=0; i<urls.length; i++) {
-	    pacer.todo(scrapeTask(urls[i], limit - 1), urls[i]);
-	}
-	pacer.await(function() {cont(tabulate(scrapedItems));});
-	pacer.start(500);
-    };
 
     var showResults = function(items) {
-	var i, j, row, item, cell;
-	var results=$("<table style='border-collapse:true;'></table>");
-	for (i=0; i<items.length; i++) {
-	    row=$('<tr></tr>');
-	    item=items[i];
-	    for (j=0; j<item.length; j++) {
-		cell=$('<td></td>');
-		cell.text(item[j]);
-		row.append(cell);
-	    }
-	    results.append(row);
-	}
-	results.find('td').css({'border':'2px solid black', 
-				'border-collapse': 'true'});
-	var msg = MyWindow.open(null,'Scraper Results').body();
-	msg.append('<h2>Results</h2>');
-	msg.append(results);
-	return;
+        var i, j, row, item, cell;
+        var results=$("<table style='border-collapse:true;'></table>");
+        for (i=0; i<items.length; i++) {
+            row=$('<tr></tr>');
+            item=items[i];
+            for (j=0; j<item.length; j++) {
+                cell=$('<td></td>');
+                cell.text(item[j]);
+                row.append(cell);
+            }
+            results.append(row);
+        }
+        results.find('td').css({'border':'2px solid black', 
+                                'border-collapse': 'true'});
+        var msg = MyFrame.open(null,'Scraper Results');
+        msg.oneLoad(function() {
+            $(msg.contentWindow.document.body)
+                .append('<h2>Results</h2>')
+                .append(results);
+        });
+        return;
     };
+
     $(path).css('background-color','red');
     getSettings().done(function(settings) {
-	    if (settings.urls) {
-		scrapeUrls(settings.urls, path, 
-			   settings.paginator, settings.limit, 
-			   showResults);
-	    } else {
-		showResults(tabulate(shredPage(startDoc, path)));
-	    }
-	});
+        if (settings.urls) {
+            scrapeUrls(settings.urls, path, 
+                       settings.paginator, settings.limit)
+                .done(showResults);
+        } else {
+            showResults(tabulate(shredPage(startDoc, path)));
+        }
+    });
 };
 
 
