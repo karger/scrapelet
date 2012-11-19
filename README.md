@@ -1,0 +1,4 @@
+scrapelet
+=========
+
+A scraper bookmarklet
