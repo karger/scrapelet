@@ -202,14 +202,14 @@ var selectItem = function(win) {
     keyCommand = function(event) {
         var key = event.which;
         event.stopPropagation();
-        if (key === 38) {//keyup
+        if (key === 38) {//arrow up
             var i=0;
             if ((currentSelection.parent().length > 0) && 
                 (currentSelection.closest('body').length>0)) {
                 history.push(currentSelection);
                 updateSelect(currentSelection.parent());
             }
-        } else if (key === 40) {
+        } else if (key === 40) {//down arrow
             if (history.length > 0) {
                 updateSelect(history.pop());
             }
@@ -688,8 +688,33 @@ var configScrape = function(elt) {
 
 
     var showResults = function(items) {
-        var i, j, row, item, cell;
-        var results=$("<table style='border-collapse:true;'></table>");
+        var i, j, row, item, cell,
+        results=$("<table style='border-collapse:true;'></table>"),
+        killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>')
+        killRow = function() {
+            var todo = killer.parent().parent();
+            killer.detach();
+            todo.remove();
+        }
+        killCol = function() {
+            var target = killer.parent().get(0), //td to remove
+            row = killer.parent().parent(), //tr 
+            targetIndex = -1,
+            findMe = function(index) {
+                if (this === target) {
+                    targetIndex = index;
+                    return false;
+                }
+            };
+
+            killer.detach();
+            row.children().each(findMe);  //which td?
+            row.parent().children().each(function () {
+                    $(this).children().eq(targetIndex).remove();
+                });
+        }
+        ;
+
         for (i=0; i<items.length; i++) {
             row=$('<tr></tr>');
             item=items[i];
@@ -707,6 +732,11 @@ var configScrape = function(elt) {
             $(msg.contentWindow.document.body)
                 .append('<h2>Results</h2>')
                 .append(results);
+            $('#kill-row',killer).click(killRow);
+            $('#kill-col',killer).click(killCol);
+            results.on('mouseenter',"td",function() {
+                    $(this).prepend(killer);
+                });
         });
         return;
     };
