@@ -16,6 +16,8 @@ if (typeof Object.create !== 'function') {
     };
 }
 
+// hash from stackoverflow; apparently same as java function
+// http://stackoverflow.com/questions/7616461/generate-a-hash-from-string-in-javascript-jquery
 String.prototype.hashCode = function(){
     var hash = 0;
     if (this.length == 0) return hash;
@@ -46,11 +48,15 @@ MyFrame.open = function(url, title, sameDoc) {
         frame.css({
             top:"10px",
             width:"100%",
-            height:"400px", 
+            'min-height':"400px", 
             border: "3px solid black",
             "background-color": "white",
             "z-index": (this.zIndex++).toString()
         });
+	setInterval(function() {
+	    frame.css({'height': 200+$(frame.get(0).contentWindow).height()});
+	},
+		    200);
         $("body").prepend(frame);
         win = frame.get(0).contentWindow;
         if (url) win.document.location = url;
@@ -67,7 +73,7 @@ MyFrame.open = function(url, title, sameDoc) {
     
     oneLoad = function(f) {
         if (!url) {
-            setTimeout(f, 100);
+            setTimeout(f, 1000);
         } else {
             $(win).one('load',f);
         }
@@ -322,7 +328,7 @@ var shredElement = function(elt) {
     var 
     scraped={},
     shredInternal = function(node, signature) {
-        var text=$(node).text();
+        var text=$(node).text().trim();
         if (text.length > 0) {
             scraped[signature] = text;
         }
@@ -365,23 +371,50 @@ var shredPage = function(page,path) {
 };
 
 var tabulate = function(items) {
-    var fields = [], rows=[];
-    var fieldMap={};
+    var fields = [], distinctFields = [], rows=[];
+    var fieldMap={}, fieldHash={}, hashField={};
     var fieldCount=0;
-    var i, item, row, field, header;
-    //count occurrences of all fields
+    var i, j, item, row, field, header, hashes=[];
+
+    //remove duplicate fields
     for (i=0; i<items.length; i++) {
         item=items[i];
         for (field in item) {
             if (item.hasOwnProperty(field)) {
-                if (!(fieldMap.hasOwnProperty(field))) {
-                    fields[fieldCount] = {field: field, count: 0};
-                    fieldMap[field] = fieldCount++;
+                if (!(fieldHash.hasOwnProperty(field))) {
+                    fieldHash[field]=0;
                 }
+		fieldHash[field] ^= (i + item[field].hashCode());
+            }
+        }
+    }
+
+    for (field in fieldHash) {
+	if (fieldHash.hasOwnProperty(field)) {
+	    hashField[fieldHash[field]] = field; //duplicates will overwrite
+	}
+    }
+
+    //collect fields to use
+    for (hash in hashField) {
+	if (hashField.hasOwnProperty(hash)) {
+	    field = hashField[hash];
+	    fieldMap[field]=fieldCount;
+	    fields[fieldCount++] = {field: field, count: 0};
+	}
+    }
+
+    //count field occurrences
+    for (i=0; i<items.length; i++) {
+        item=items[i];
+        for (field in item) {
+            if (item.hasOwnProperty(field) && 
+		(fieldMap.hasOwnProperty(field))) {
                 fields[fieldMap[field]].count++;
             }
         }
     }
+
     //build new fieldMap with common items first
     fields.sort(function(a,b) {return b.count-a.count;}); //descending
     fieldMap={};
@@ -389,19 +422,20 @@ var tabulate = function(items) {
         fieldMap[fields[i].field] = i;
     }
 
+
     //translate each item to array using fieldMap
     for (i=0; i < items.length; i++) {
         item=items[i];
         row=[];
         for (field in item) {
-            if (item.hasOwnProperty(field)) {
+            if (item.hasOwnProperty(field) && fieldMap.hasOwnProperty(field)) {
                 row[fieldMap[field]]=item[field];
             }
         }
         rows.push(row);
     }
-    header=fields.map(function(item) {return item.count;});
-    rows.unshift(header);  //good for debugging
+    header=fields.map(function(info) {return info.count;});
+    rows.unshift(header);
     return rows;
 };
 
@@ -692,9 +726,9 @@ var configScrape = function(elt) {
         results=$("<table style='border-collapse:true;'></table>"),
         killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>')
         killRow = function() {
-            var todo = killer.parent().parent();
+            var target = killer.parent().parent();
             killer.detach();
-            todo.remove();
+            target.remove();
         }
         killCol = function() {
             var target = killer.parent().get(0), //td to remove
