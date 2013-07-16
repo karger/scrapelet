@@ -1,4 +1,4 @@
-/*jslint browser: true, bitwise: true, devel: true, plusplus: true, sloppy: true, vars: true*/
+/*jslint browser: true, bitwise: true, devel: true, plusplus: true, vars: true, white: true*/
 
 if (typeof Object.create !== 'function') {
     Object.create = function (o) {
@@ -138,7 +138,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
 
     //iterates an asynchronous function f over a range of values
     //serializes invocations---one doesn't begin till previous ends
-    //f should return a deferred object
+    //f should return a deferred object that is resolved when f finishes
     var forDeferred = function (f, start, limit) {
         var done = $.Deferred();
         var forInner = function () {
@@ -169,7 +169,8 @@ if (typeof ELEMENT_NODE === 'undefined') {
             });
         };
     };
-    //when called, lets user interactively choose a page element
+
+    //lets user interactively choose a page element
     //returns a deferred object that will be resolved when user chooses element
     var selectItem = function (win0) {
         var currentSelection,
@@ -274,7 +275,6 @@ if (typeof ELEMENT_NODE === 'undefined') {
             return false; 
         };
 
-
         setup();
 
         return done.promise();
@@ -322,7 +322,6 @@ if (typeof ELEMENT_NODE === 'undefined') {
         return finder;
     },
 
-
     choosePaginator = function () {
         var done = $.Deferred();
         selectItem().done(function (elt) {
@@ -330,7 +329,6 @@ if (typeof ELEMENT_NODE === 'undefined') {
         });
         return done.promise();
     },
-
 
     shredElement = function (elt) {
         var 
@@ -365,7 +363,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         return scraped;
     },
 
-    shredPage = function (page,path) {
+    shredPage = function (page, path) {
         var items = [];
         $(page)
             .find(path)
@@ -539,7 +537,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         var i,j;
         var formTask = function (i) {
             return function (done) {
-                scrapeFormInstance(i,done);
+                scrapeFormInstance(i, done);
             };
         };
         var scrapeFormInstance = function (i, done) {
@@ -557,7 +555,6 @@ if (typeof ELEMENT_NODE === 'undefined') {
         }
 
     },
-
 
     scrapeUrls = function (urls, path, paginator, limit) { 
         var done = $.Deferred()
@@ -592,7 +589,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
                     //until no pagination link is found
                     //on some sites this may cause an infinite loop!
                     if (paginator && (limit-- !== 0) && 
-                        (anchor=paginator(doc)).length > 0) {
+                        (anchor = paginator(doc)).length > 0) {
                         //heuristic; use last match if have multiple
                         anchor.get(anchor.length-1).click(); 
                         setTimeout(scrapeOne, 2000);
@@ -731,14 +728,42 @@ if (typeof ELEMENT_NODE === 'undefined') {
 
 
         var showResults = function (items) {
-            var i, j, row, item, cell,
+            var i, j, row, item, cell, 
             results=$("<table style='border-collapse:true;'></table>"),
             killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>'),
+
+	    //function to remove one row from the table
+	    //removing the row will remove values from certain columns
+	    //if the columns become empty, we remove them
             killRow = function () {
-                var target = killer.parent().parent();
-                killer.detach();
-                target.remove();
+                var target = killer.parent().parent(),
+                header = target.siblings().eq(0).children(),
+                deadCols=[];
+                if (target.get(0).rowIndex > 0) { //don't delete header
+                    killer.detach();
+		    //update header counts and find now-empty columns
+                    target.children().each(function (i) {
+                        var count;
+                        if ($(this).is(':not(:empty)')) {
+                            count = parseInt(header.eq(i).text());
+                            header.eq(i).text(count-1);
+                            if (count === 1) {
+                                deadCols.push(i);
+                            }
+                        }
+                    });
+                    //remove all empty columns
+                    results.find('tr').each(function () {
+                        var i, row=$(this).children();
+                        for (i = deadCols.length-1; i>=0; i--) {
+                            //count down to avoid changing indices
+                            row.eq(deadCols[i]).remove();
+                        }
+                    });
+                    target.remove();
+                }
             },
+
             killCol = function () {
                 var target = killer.parent().get(0), //td to remove
                 row = killer.parent().parent(), //tr 
@@ -749,7 +774,6 @@ if (typeof ELEMENT_NODE === 'undefined') {
                         return false;
                     }
                 };
-
                 killer.detach();
                 row.children().each(findMe);  //which td?
                 row.parent().children().each(function () {
@@ -758,6 +782,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
             }
             ;
 
+            //function showresults
             for (i=0; i<items.length; i++) {
                 row=$('<tr></tr>');
                 item=items[i];
