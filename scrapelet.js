@@ -1,12 +1,12 @@
 /*jslint browser: true, bitwise: true, devel: true, plusplus: true, vars: true, white: true*/
 
-if (typeof Object.create !== 'function') {
-    Object.create = function (o) {
-        var F = function () {};
-        F.prototype = o;
-        return new F();
-    };
-}
+    if (typeof Object.create !== 'function') {
+        Object.create = function (o) {
+            var F = function () {};
+            F.prototype = o;
+            return new F();
+        };
+    }
 
 if (typeof ELEMENT_NODE === 'undefined') {
     ELEMENT_NODE = 1;
@@ -732,16 +732,16 @@ if (typeof ELEMENT_NODE === 'undefined') {
             results=$("<table style='border-collapse:true;'></table>"),
             killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>'),
 
-	    //function to remove one row from the table
-	    //removing the row will remove values from certain columns
-	    //if the columns become empty, we remove them
+            //function to remove one row from the table
+            //removing the row will remove values from certain columns
+            //if the columns become empty, we remove them
             killRow = function () {
                 var target = killer.parent().parent(),
                 header = target.siblings().eq(0).children(),
                 deadCols=[];
                 if (target.get(0).rowIndex > 0) { //don't delete header
                     killer.detach();
-		    //update header counts and find now-empty columns
+                    //update header counts and find now-empty columns
                     target.children().each(function (i) {
                         var count;
                         if ($(this).is(':not(:empty)')) {
