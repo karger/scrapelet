@@ -1,10 +1,12 @@
+/* var alert, $, ELEMENT_NODE; */
+
 if (typeof (ELEMENT_NODE)==='undefined') {
     ELEMENT_NODE=1;
 }
 
 var debug = {
     log: function (s) {
-        if (console) console.log(s);
+        if (console) { console.log(s); }
     }
 };
 
@@ -16,31 +18,23 @@ if (typeof Object.create !== 'function') {
     };
 }
 
-String.prototype.hashCode = function(){
-    var hash = 0;
-    if (this.length == 0) return hash;
-    for (i = 0; i < this.length; i++) {
-        char = this.charCodeAt(i);
-        hash = ((hash<<5)-hash)+char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return hash;
-}
 
 // abstract a window so you can use a pop-open window or an iframe
 
-var MyFrame = {sameDoc: false, zIndex: 5001};
+var MyFrame = {sameDoc: true, zIndex: 5001};
 MyFrame.open = function(url, title, sameDoc) {
-    var frame, win, oneLoad;
-    var close = function() {
-        win.close()
+    var frame, win, oneLoad
+    , close = function() {
+        win.close();
         if (sameDoc) {
             frame.remove();
         }
     }
+    ;
     debug.log('frame ' + url + ' ' + title);
-    if ((typeof(sameDoc) === null || typeof(sameDoc)==="undefined"))
+    if ((typeof(sameDoc) === null || typeof(sameDoc)==="undefined")) {
         sameDoc = this.sameDoc;
+        }
     if (sameDoc) { //frame 
         frame = $('<iframe title="'+title+'"></iframe>');
         frame.css({
@@ -53,7 +47,7 @@ MyFrame.open = function(url, title, sameDoc) {
         });
         $("body").prepend(frame);
         win = frame.get(0).contentWindow;
-        if (url) win.document.location = url;
+        if (url) {win.document.location = url;}
     } else {
         win = window.open(url, title);
     }
@@ -71,17 +65,18 @@ MyFrame.open = function(url, title, sameDoc) {
         } else {
             $(win).one('load',f);
         }
-    }
+    };
     return {contentWindow: win, close: close, oneLoad: oneLoad};
 };
 
 
 
 //for future use, if you want to handle pages with iframes
-var allFrames = function(win) {
+var allFrames = function(winArg) {
 
-    win = win || window;
-    result = $('body',win);
+    var win = winArg || window
+    , i
+    , result = $('body',win);
 
     for (i=0; i < win.frames.length; i++) {
         if (win.frames[i].location &&
@@ -101,10 +96,10 @@ var allFrames = function(win) {
 //returns a promise object that resolves when the last functions does
 //or, if any function in list fails, overall promise fails
 var deferredSequence = function() {
-    var args = Array.prototype.slice.call(arguments);
-    var allDone = $.Deferred();
-    var fail = function () {allDone.reject();};
-    var next = function() {
+    var args = Array.prototype.slice.call(arguments)
+    , allDone = $.Deferred()
+    , fail = function () {allDone.reject();}
+    , next = function() {
         if (args.length === 0) {
             allDone.resolve();
         } else {
@@ -112,7 +107,7 @@ var deferredSequence = function() {
             deferred.done(next);
             deferred.fail(fail);
             (args.shift())(deferred);
-        };
+        }
     };
     
     next();
@@ -124,8 +119,8 @@ var deferredSequence = function() {
 //serializes invocations---one doesn't begin till previous ends
 //f should return a deferred object
 var forDeferred = function(f, start, limit) {
-    var done = $.Deferred();
-    var forInner = function() {
+    var done = $.Deferred()
+    , forInner = function() {
         var todo;
         if (start >= limit) {
             done.resolve();
@@ -134,39 +129,56 @@ var forDeferred = function(f, start, limit) {
             todo.done(forInner);
         }
     }
+    ;
     forInner();
     return done;
 };
 
 var Slowly = function(period) {
-    period = period || 1000;
-    var last = $.Deferred().resolve();
-    var sleep = function (t) {
+    var last = $.Deferred().resolve()
+    , sleep = function (t) {
         var done=$.Deferred();
         setTimeout(function () {done.resolve();}, t);
         return done.promise();
     }
+    ;
+    period = period || 1000;
     this.exec = function(f) {
         last = last.pipe(function () {
             f(); 
             return sleep(period);
         });
-    }
-}
+    };
+};
 //when called, lets user interactively choose a page element
 //returns a deferred object that will be resolved when user chooses element
-var selectItem = function(win) {
-    var currentSelection,
-    currentSelectionColor,
-    currentSelectionBorder,
-    currentSelectionPath,
-    history = [],
-    highlightStyle = $('<style>.scraper-highlight {background-color: wheat}</style>'),
+var selectItem = function(winArg) {
+    var currentSelection
+    , win = winArg || window
+    , currentSelectionColor
+    , currentSelectionBorder
+    , currentSelectionPath
+    , history = []
+    , highlightStyle = $('<style>.scraper-highlight {background-color: wheat}</style>')
     
-    done = $.Deferred(),
-    win = win || window,
+    , done = $.Deferred()
+    , body=$('body',win.document)
 
-    unhighlight = function () {
+    , commitSelect = function(evt) {
+        cleanup();
+        done.resolve(currentSelection);
+    }
+
+    , captureClick = function(evt) {
+        //Unlike jq, returning false in a standard event handler does
+        //NOT prevent bubbling/default, so we need to force that explicitly 
+        evt.stopPropagation();
+        evt.preventDefault();
+        setTimeout(function() {commitSelect(evt.target);}, 10);
+        return false; 
+    }
+
+    , unhighlight = function () {
         if (currentSelection) {
             $(currentSelectionPath).removeClass('scraper-highlight');
             currentSelection.css('background',currentSelectionColor);
@@ -181,9 +193,9 @@ var selectItem = function(win) {
         currentSelectionBorder=currentSelection.css('border');
         currentSelection.css('background-color','yellow');
         currentSelection.css('border','3px solid black');
-    },
+    }
 
-    updateSelect = function(elt) {
+    , updateSelect = function(elt) {
         if (currentSelection !== elt) {
             unhighlight();
             currentSelection=elt;
@@ -192,18 +204,18 @@ var selectItem = function(win) {
                 highlight();
             }
         }
-    },
+    }
 
-    selectCurrentMouse = function(event) {
+    , selectCurrentMouse = function(event) {
         updateSelect($(event.target));
-    },
+    }
 
 
-    keyCommand = function(event) {
-        var key = event.which;
+    , keyCommand = function(event) {
+        var i, key = event.which;
         event.stopPropagation();
         if (key === 38) {//arrow up
-            var i=0;
+            i=0;
             if ((currentSelection.parent().length > 0) && 
                 (currentSelection.closest('body').length>0)) {
                 history.push(currentSelection);
@@ -222,9 +234,9 @@ var selectItem = function(win) {
             commitSelect();
         }
         return false;
-    },
+    }
 
-    setup = function() {
+    , setup = function() {
         highlightStyle.appendTo(body);
         body.on('mousemove.highlighter', selectCurrentMouse);
         body.on('keydown.highlighter', keyCommand);
@@ -233,9 +245,9 @@ var selectItem = function(win) {
             //capture phase, so it can't stop propagation soon enough
             //to prevent other click events. 
             this.addEventListener('click', captureClick, true);});
-    },
+    }
 
-    cleanup = function() {
+    , cleanup = function() {
         unhighlight();
         highlightStyle.remove();
         body.off('mousemove.highlighter', selectCurrentMouse);
@@ -243,23 +255,9 @@ var selectItem = function(win) {
         body.each(function() {
             this.removeEventListener('click', captureClick, true);
         });
-    },
+    }
 
-    commitSelect = function(evt) {
-        cleanup();
-        done.resolve(currentSelection);
-    },
-
-    captureClick = function(evt) {
-        //Unlike jq, returning false in a standard event handler does
-        //NOT prevent bubbling/default, so we need to force that explicitly 
-        evt.stopPropagation();
-        evt.preventDefault();
-        setTimeout(function() {commitSelect(evt.target);}, 10)
-        return false; 
-    },
-
-    body=$('body',win.document);
+    ;
 
     setup();
 
@@ -273,8 +271,8 @@ var describePath = function(elt, depth, useClass) {
     if (elt.is("body")) {
         return "body";
     } else {
-        var prior = describePath(elt.parent(),depth-1, useClass);
-        var classSelector = 
+        var prior = describePath(elt.parent(),depth-1, useClass)
+        , classSelector = 
             (useClass && elt.attr('class') && elt.attr('class').length > 0) 
             ? "." + elt.attr('class').split(' ').join('.')
             : "";
@@ -310,7 +308,7 @@ var makeEltFinder = function (elt, useClass) {
 
 
 var choosePaginator = function() {
-    done = $.Deferred();
+    var done = $.Deferred();
     selectItem().done(function(elt) {
         done.resolve(makeEltFinder(elt,true));
     });
@@ -320,9 +318,11 @@ var choosePaginator = function() {
 
 var shredElement = function(elt) {
     var 
-    scraped={},
-    shredInternal = function(node, signature) {
-        var text=$(node).text();
+    scraped={}
+    , shredInternal = function(node, signature) {
+        var text=$(node).text().trim()
+        , child
+        ;
         if (text.length > 0) {
             scraped[signature] = text;
         }
@@ -337,9 +337,9 @@ var shredElement = function(elt) {
             if (node.src) {
                 scraped[signature + " > src"] = node.src;
             }
-            var child=node.firstChild;
+            child=node.firstChild;
             signature = signature + " >";
-            while(child) {
+            while(typeof(child) !== "undefined" && child !== null ) {
                 signature = signature+" "+child.nodeName;
                 shredInternal(child, signature);
                 child=child.nextSibling;
@@ -365,28 +365,69 @@ var shredPage = function(page,path) {
 };
 
 var tabulate = function(items) {
-    var fields = [], rows=[];
-    var fieldMap={};
-    var fieldCount=0;
-    var i, item, row, field, header;
-    //count occurrences of all fields
+    var fields = [], rows=[]
+    , fieldMap={}
+    , fieldCount=0
+    , i, item, row, field, header, h
+    , fieldData
+    , fieldList = []
+    , hashes={}, newItems = []
+    
+    , addHash = function(i, x) {
+        i = ((i<<5)-i)+x;
+        i = i&i; // Convert to 32bit integer
+        return i;
+    }
+
+    , stringHash = function(s) {
+        var i, ch
+        , hash = 0;
+
+        if (s.length === 0) {return hash;}
+        for (i = 0; i < s.length; i++) {
+            ch = s.charCodeAt(i);
+            hash = ((hash<<5)-hash)+ch;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash;
+    };
+
+
+    //count occurrences and compute hashes of all fields
     for (i=0; i<items.length; i++) {
         item=items[i];
         for (field in item) {
             if (item.hasOwnProperty(field)) {
-                if (!(fieldMap.hasOwnProperty(field))) {
-                    fields[fieldCount] = {field: field, count: 0};
-                    fieldMap[field] = fieldCount++;
+                if (!(fields.hasOwnProperty(field))) {
+                    fields[field] = {field: field, 
+                                     count: 0,
+                                     hash: 0};
                 }
-                fields[fieldMap[field]].count++;
+                fieldData = fields[field];
+                fieldData.count++;
+                fieldData.hash = addHash(addHash(fieldData.hash,i),
+                                         stringHash(item[field]));
             }
         }
     }
+
+    //collect fields but skip duplicates
+    i=0;
+    for (field in fields) {
+        if (fields.hasOwnProperty(field)) {
+            fieldData = fields[field];
+            if (!hashes[fieldData.hash]) {
+                hashes[fieldData.hash] = true;
+                fieldList[i++] = fieldData;
+            }
+        }
+    }
+
     //build new fieldMap with common items first
-    fields.sort(function(a,b) {return b.count-a.count;}); //descending
+    fieldList.sort(function(a,b) {return b.count-a.count;}); //descending
     fieldMap={};
-    for (i=0; i<fields.length; i++) {
-        fieldMap[fields[i].field] = i;
+    for (i=0; i<fieldList.length; i++) {
+        fieldMap[fieldList[i].field] = i;
     }
 
     //translate each item to array using fieldMap
@@ -394,13 +435,14 @@ var tabulate = function(items) {
         item=items[i];
         row=[];
         for (field in item) {
-            if (item.hasOwnProperty(field)) {
+            if (item.hasOwnProperty(field) 
+                && fieldMap.hasOwnProperty(field)) {
                 row[fieldMap[field]]=item[field];
             }
         }
         rows.push(row);
     }
-    header=fields.map(function(item) {return item.count;});
+    header=fieldList.map(function(item) {return item.count;});
     rows.unshift(header);  //good for debugging
     return rows;
 };
@@ -408,11 +450,11 @@ var tabulate = function(items) {
 
 
 var configForm = function (win) {
-    var settings = {varying: []};
-    var form;
-    var result = $.Deferred();
+    var settings = {varying: []}
+    , form
+    , result = $.Deferred()
 
-    var getForm = function(done) {
+    , getForm = function(done) {
 
         var parseForm = function(evt) {
             form = $(evt.target);
@@ -423,16 +465,16 @@ var configForm = function (win) {
             evt.preventDefault();
             done.resolve();
             return false;  //so form isn't submitted
-        }
+        };
 
         win.alert("Fill out this form for a typical query, then submit it.");
         $(win.document.body).find('form').one('submit', parseForm);
     }
 
-    var getVarying = function(done) {
-        var deferred = $.Deferred();
+    , getVarying = function(done) {
+        var deferred = $.Deferred()
 
-        var receiveField = function(field) {
+        , receiveField = function(field) {
             if (field === null) {
                 //user finished; return results
                 done.resolve();
@@ -446,19 +488,23 @@ var configForm = function (win) {
                 selectItem(win).done(receiveField);
             }
         }
+        ;
 
         alert("Now click on fields you want to change as you scrape.  Click the escape key (esc) when done.");
         selectItem(win).done(receiveField);
     }
 
-    var fillVarying = function(done) {
+    , fillVarying = function(done) {
 
         var receiveValues = function (evt) {
-            var i;
-            var count=0;
+            var i
+            , count=0
+            , field
+            , values
+            ;
             for (i=0; i<settings.varying.length; i++) {
-                var field = settings.varying[i].name;
-                var values = form.find('textarea[name="' + field +'"]')
+                field = settings.varying[i].name;
+                values = form.find('textarea[name="' + field +'"]')
                     .val().split('\n');
                 if ((count > 0) && (values.length !== count)) {
                     alert("mismatched number of values in different fields!");
@@ -472,7 +518,8 @@ var configForm = function (win) {
             return false;
         }
 
-        var i;
+        , i
+        ;
         for (i=0; i<settings.varying.length; i++) {
             form.find('input[name="' + settings.varying[i].name +'"]')
                 .replaceWith('<textarea name="' + settings.varying[i].name
@@ -480,7 +527,7 @@ var configForm = function (win) {
         }
         alert("Fill in the values you want to submit, one per line.  Then click the submit button");
         form.one('submit', receiveValues);
-    }
+    };
 
 
     win = win || window;
@@ -489,17 +536,18 @@ var configForm = function (win) {
                      fillVarying,
                      function () {
                          debug.log(settings);
-                         result.resolve(settings)});
+                         result.resolve(settings);
+                     });
 };
 
 var scrapeForm = function(form, settings) {
-    var i,j;
-    var formTask = function(i) {
+    var i,j
+    , formTask = function(i) {
         return function(done) {
             scrapeFormInstance(i,done);
-        }
+        };
     }
-    var scrapeFormInstance = function(i, done) {
+    , scrapeFormInstance = function(i, done) {
         form.target="scraper"+i;
         for (j=0; j<settings.varying.length; j++) {
             form.find('input[name="' + settings.varying[i].name +'"]')
@@ -508,6 +556,7 @@ var scrapeForm = function(form, settings) {
         form.submit();
         //set up task of scraping results
     }
+    ;
 
     for (i=0; i<settings.varying[0].values.length; i++) {
         pacer.todo(formTask(i));
@@ -529,7 +578,7 @@ var scrapeUrls = function(urls, path, paginator, limit) {
         var doneFrame = $.Deferred()
         , wrapUp = function () {
             doneFrame.resolve();
-            if (close) frame.close();
+            if (close) {frame.close();}
             }
         , scrapeOne = function() {
             var win = frame.contentWindow
@@ -557,7 +606,7 @@ var scrapeUrls = function(urls, path, paginator, limit) {
                     wrapUp();
                 }
             }
-        }
+        };
             
         debug.log('scrape frame ' + frame.contentWindow.location.href);
         frame.oneLoad(function () { 
@@ -568,9 +617,9 @@ var scrapeUrls = function(urls, path, paginator, limit) {
 
     , scrapeForm = function(form, fills) {
         forDeferred(function(i) {
-            pacer.enqueue()
+            pacer.enqueue();
         },
-                    0, fills.length)
+                    0, fills.length);
     }
 
     , scrapeUrl = function(url, limit) {
@@ -583,40 +632,38 @@ var scrapeUrls = function(urls, path, paginator, limit) {
     forDeferred(function(i) {
         return scrapeUrl(urls[i], limit - 1);
     },0,urls.length)
-        .done(function() {done.resolve(tabulate(scrapedItems))});
+        .done(function() {done.resolve(tabulate(scrapedItems));});
     return done.promise();
 };
 
 
 var configScrape = function(elt) {
 
-    if (elt===null) return;
-    scrollTo(0,0);
+    if (elt===null) {return;}
 
-    var path=describePath(elt,20);
-    var term = MyFrame.open(null, 'Configure Scraper');
-    var startDoc = elt.get(0).ownerDocument; //possibly in iframe
-    var getSettings = function() {
-        var done = $.Deferred();
+    var path=describePath(elt,20)
+    , term = MyFrame.open("", 'Configure Scraper')
+    , startDoc = elt.get(0).ownerDocument //possibly in iframe
+    , getSettings = function() {
+        var done = $.Deferred()
 
-        var scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages/pagination</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>');
+        , scrapeChoice=$('<div><h1>What to scrape?</h1><div><input type="radio" name="scrape-choice" value="self" checked>Just this page</input></div><div><input type="radio" name="scrape-choice" value="list">Multiple pages/pagination</input></div><input type="radio" name="scrape-choice" value="form">Multiple values in a form on this page</input></div>')
 
-        var urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide();
+        , urlList=$("<div><h2>Choose URLs</h2><div>Enter URLs to scrape, one per line</div><textarea id='urls' rows='10' cols='100'>" + startDoc.URL + "</textarea>").hide()
 
-        var formURL = $("<div><h2>Form URL</h2><div>Enter the URL of the form you want to submit</div><input type='textfield' id='formurl' name='formurl' value = '" + startDoc.URL + "' size='80'></input>").hide();
+        , formURL = $("<div><h2>Form URL</h2><div>Enter the URL of the form you want to submit</div><input type='textfield' id='formurl' name='formurl' value = '" + startDoc.URL + "' size='80'></input>").hide()
 
-        var paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide();
-        var paginateCheckbox = paginate.find('input[name="paginate"]');
+        , paginate = $("<div><h2>Pagination</h2><input type='checkbox' name='paginate' value='paginate'></input> Try to paginate?</div>").hide()
+        , paginateCheckbox = paginate.find('input[name="paginate"]')
 
-        var paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>");
-        paginateLimit.hide().appendTo(paginate);
+        , paginateLimit = $("<div><input type='textfield' size='5' name='paginate-limit' value='100'></input> Maximum pagination steps?  Enter 0 to paginate forever but beware!</div>").hide().appendTo(paginate)
 
-        var scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>");
+        , scrapeButton = $("<div><input type='button' id='scrapeButton' value='scrape'></input></div>")
         
-        var urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
-            .append(formURL).append(paginate).append(scrapeButton);
+        , urlForm = $("<div></div>").append(scrapeChoice).append(urlList)
+            .append(formURL).append(paginate).append(scrapeButton)
 
-        var handleInput = function() {
+        , handleInput = function() {
             var urls, limit;
 
             if (scrapeChoice.find('input[name="scrape-choice"]:checked')
@@ -684,19 +731,19 @@ var configScrape = function(elt) {
         },
                    100);
         return done.promise();
-    };
+    }
 
 
-    var showResults = function(items) {
-        var i, j, row, item, cell,
-        results=$("<table style='border-collapse:true;'></table>"),
-        killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>')
-        killRow = function() {
+    , showResults = function(items) {
+        var i, j, row, item, cell
+        , results=$("<table style='border-collapse:true;'></table>")
+        , killer = $('<div><button id="kill-row">Kill Row</button><button id="kill-col">Kill Column</button></div>')
+        , killRow = function() {
             var todo = killer.parent().parent();
             killer.detach();
             todo.remove();
         }
-        killCol = function() {
+        , killCol = function() {
             var target = killer.parent().get(0), //td to remove
             row = killer.parent().parent(), //tr 
             targetIndex = -1,
@@ -713,6 +760,7 @@ var configScrape = function(elt) {
                     $(this).children().eq(targetIndex).remove();
                 });
         }
+        , msg = MyFrame.open("",'Scraper Results')
         ;
 
         for (i=0; i<items.length; i++) {
@@ -727,7 +775,6 @@ var configScrape = function(elt) {
         }
         results.find('td').css({'border':'2px solid black', 
                                 'border-collapse': 'true'});
-        var msg = MyFrame.open(null,'Scraper Results');
         msg.oneLoad(function() {
             $(msg.contentWindow.document.body)
                 .append('<h2>Results</h2>')
@@ -741,6 +788,7 @@ var configScrape = function(elt) {
         return;
     };
 
+    scrollTo(0,0);
     $(path).css('background-color','red');
     getSettings().done(function(settings) {
         if (settings.urls) {
@@ -772,4 +820,4 @@ var loadScript = function(script, cont) {
     document.body.appendChild(jsCode);
 };
 
-loadScript("http://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js","startIt()");
+loadScript("http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.js","startIt()");
