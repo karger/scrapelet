@@ -1,12 +1,13 @@
 /*jslint browser: true, bitwise: true, devel: true, plusplus: true, vars: true, white: true*/
+/*global $, ELEMENT_NODE: true */
 
-    if (typeof Object.create !== 'function') {
-        Object.create = function (o) {
-            var F = function () {};
-            F.prototype = o;
-            return new F();
-        };
-    }
+if (typeof Object.create !== 'function') {
+    Object.create = function (o) {
+        var F = function () {};
+        F.prototype = o;
+        return new F();
+    };
+}
 
 if (typeof ELEMENT_NODE === 'undefined') {
     ELEMENT_NODE = 1;
@@ -288,9 +289,12 @@ if (typeof ELEMENT_NODE === 'undefined') {
             return "body";
         } else {
             var prior = describePath(elt.parent(),depth-1, useClass);
+            var cls=elt.attr('class');
             var classSelector = 
-                (useClass && elt.attr('class') && elt.attr('class').length > 0) 
-                ? "." + elt.attr('class').split(' ').join('.')
+                (useClass && cls && cls.length > 0) 
+                ? "." + cls.split(' ').filter(function(x) {
+                    return(x.length > 0);
+                    }).join('.')
                 : "";
 
             return prior + " > " + elt.get(0).nodeName + classSelector;
@@ -634,7 +638,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         scrollTo(0,0);
 
         var path=describePath(elt,20);
-        var term = MyFrame.open(null, 'Configure Scraper');
+        var term = MyFrame.open("", 'Configure Scraper');
         var startDoc = elt.get(0).ownerDocument; //possibly in iframe
         var getSettings = function () {
             var done = $.Deferred();
@@ -787,18 +791,18 @@ if (typeof ELEMENT_NODE === 'undefined') {
                 row=$('<tr></tr>');
                 item=items[i];
                 for (j=0; j<item.length; j++) {
-                    cell=$('<td></td>');
+                    cell=(i>0) ? $('<td></td>') : $('<th></th>');
                     cell.text(item[j]);
                     row.append(cell);
                 }
                 results.append(row);
             }
-            results.find('td').css({'border':'2px solid black', 
-                                    'border-collapse': 'true'});
-            var msg = MyFrame.open(null,'Scraper Results');
+            var msg = MyFrame.open("",'Scraper Results');
             msg.oneLoad(function () {
                 $(msg.contentWindow.document.body)
                     .append('<h2>Results</h2>')
+                    .append("<style>td {border: 2px solid black}\n"
+                           +"table {border-collapse: collapse}</style>")
                     .append(results);
                 $('#kill-row',killer).click(killRow);
                 $('#kill-col',killer).click(killCol);
@@ -840,5 +844,5 @@ if (typeof ELEMENT_NODE === 'undefined') {
         document.body.appendChild(jsCode);
     };
 
-    loadScript("http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js",startIt);
+    loadScript(document.location.protocol+"//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js",startIt);
 }());
