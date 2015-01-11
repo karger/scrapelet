@@ -29,7 +29,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         if (str.length === 0) {
             return hash;
         }
-        for (i = 0; i < this.length; i++) {
+        for (i = 0; i < str.length; i++) {
             char = str.charCodeAt(i);
             hash = ((hash << 5) - hash) + char;
             hash = hash & hash; // Convert to 32bit integer
@@ -66,7 +66,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
                     "z-index": (this.zIndex++).toString()
                 });
                 setInterval(function () {
-                    frame.css({'height': 200 + $(frame.get(0).contentWindow).height()});
+                    frame.css({'height': $(frame.get(0).contentWindow).height()});
                 },
                             200);
                 $("body").prepend(frame);
@@ -76,6 +76,9 @@ if (typeof ELEMENT_NODE === 'undefined') {
                 win = window.open(url, title);
             }
 
+            if (typeof(win) === "undefined") {
+                throw new Error("Could not create window");
+            }
             //oneLoad is a hack to deal with inconsistent asynchrony and
             //behavior of load events in iframes and windows when target is
             //about:blank 
@@ -179,7 +182,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         currentSelectionBorder,
         currentSelectionPath,
         history = [],
-        highlightStyle = $('<style>.scraper-highlight {background-color: wheat}</style>'),
+        highlightStyle = $('<style>.scraper-highlight {background-color: wheat;}</style>'),
         done = $.Deferred(),
         win = win0 || window,
         body=$('body',win.document),
@@ -187,7 +190,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         unhighlight = function () {
             if (currentSelection) {
                 $(currentSelectionPath).removeClass('scraper-highlight');
-                currentSelection.css('background', currentSelectionColor);
+                currentSelection.css('background-color', currentSelectionColor);
                 currentSelection.css('border', currentSelectionBorder);
             }
         },
@@ -195,7 +198,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         highlight = function () {
             $(currentSelectionPath).addClass('scraper-highlight');
             //use inline style to override any class-based styling
-            currentSelectionColor=currentSelection.css('background');
+            currentSelectionColor=currentSelection.css('background-color');
             currentSelectionBorder=currentSelection.css('border');
             currentSelection.css('background-color', 'yellow');
             currentSelection.css('border', '3px solid black');
@@ -581,8 +584,8 @@ if (typeof ELEMENT_NODE === 'undefined') {
                 , anchor
                 , hash = hashCode(doc.find('body').html());
 
-                debug.log('loaded ' + win.location.href);
-
+                debug.log('loaded ' + win.location.href + " hash " + hash);
+                
                 if (seenHashes[hash]) {
                     wrapUp();
                 } else {
@@ -594,6 +597,15 @@ if (typeof ELEMENT_NODE === 'undefined') {
                     //on some sites this may cause an infinite loop!
                     if (paginator && (limit-- !== 0) && 
                         (anchor = paginator(doc)).length > 0) {
+                        debug.log("next button <" +
+                                  anchor.eq(anchor.length-1).prop('tagName')+
+                                  anchor.eq(anchor.length-1).attr('class')+
+                                  ">"+
+                                  anchor.eq(anchor.length-1).html()+
+                                  "</"+
+                                  anchor.eq(anchor.length-1).prop('tagName')+
+                                  ">"
+                                  );
                         //heuristic; use last match if have multiple
                         anchor.get(anchor.length-1).click(); 
                         setTimeout(scrapeOne, 2000);
@@ -603,8 +615,9 @@ if (typeof ELEMENT_NODE === 'undefined') {
                 }
             };
             
-            debug.log('scrape frame ' + frame.contentWindow.location.href);
+            debug.log("loading frame");
             frame.oneLoad(function () { 
+                debug.log('scrape frame ' + frame.contentWindow.location.href);
                 setTimeout(scrapeOne, 2000);//add some time for page's js to run
             });
             return doneFrame.promise();
@@ -619,7 +632,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
 
         , scrapeUrl = function (url, limit) {
             debug.log('scrape url ' + url);
-            var frame = MyFrame.open(url,url);
+            var frame = MyFrame.open(url);
             //use url as title so different pages don't overwrite same window
             return scrapeFrame(frame, limit, true);
         };
@@ -638,7 +651,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
         scrollTo(0,0);
 
         var path=describePath(elt,20);
-        var term = MyFrame.open("", 'Configure Scraper');
+        var term = MyFrame.open("", 'ConfigureScraper');
         var startDoc = elt.get(0).ownerDocument; //possibly in iframe
         var getSettings = function () {
             var done = $.Deferred();
@@ -797,7 +810,7 @@ if (typeof ELEMENT_NODE === 'undefined') {
                 }
                 results.append(row);
             }
-            var msg = MyFrame.open("",'Scraper Results');
+            var msg = MyFrame.open("",'ScraperResults');
             msg.oneLoad(function () {
                 $(msg.contentWindow.document.body)
                     .append('<h2>Results</h2>')
